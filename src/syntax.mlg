@@ -1,0 +1,5 @@
+DECLARE PLUGIN "vcpu-plugin.plugin"
+
+VERNAC COMMAND EXTEND Vcpu CLASSIFIED AS QUERY
+| [ "Hello" ] -> { Feedback.msg_notice Pp.(str Hello_world.hello_world) }
+END
