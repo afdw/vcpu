@@ -41,6 +41,9 @@ Definition circuit_compute_wires_aux start_wire_values wires inputs :=
 Definition circuit_compute_wires c inputs :=
   circuit_compute_wires_aux [] (circuit_wires c) inputs.
 
+Definition circuit_compute c inputs :=
+  list_select (circuit_compute_wires c inputs) (circuit_outputs c) false.
+
 Theorem length_circuit_compute_wires_aux :
   forall start_wire_values wires inputs,
   length (circuit_compute_wires_aux start_wire_values wires inputs) = length wires.
@@ -108,7 +111,7 @@ Next Obligation.
   simpl. auto.
 Qed.
 
-Lemma circuit_empty_spec :
+Lemma circuit_empty_spec_wires :
   forall input_count,
   forall inputs, length inputs = input_count ->
   circuit_compute_wires (circuit_empty input_count) inputs = inputs.
@@ -123,6 +126,14 @@ Proof.
     + simpl. rewrite (list_fold_left_list_seq_shift _ 0 1). rewrite IH. rewrite List.app_assoc_reverse. auto.
 Qed.
 
+Lemma circuit_empty_spec :
+  forall input_count,
+  forall inputs, length inputs = input_count ->
+  circuit_compute (circuit_empty input_count) inputs = [].
+Proof.
+  intros input_count inputs H. unfold circuit_compute, circuit_empty. auto.
+Qed.
+
 #[program] Definition circuit_zero := {|
   circuit_input_count := 0;
   circuit_wires := [binding_Zero];
@@ -135,8 +146,14 @@ Next Obligation.
   simpl. lia.
 Qed.
 
-Lemma circuit_zero_spec :
+Lemma circuit_zero_spec_wires :
   circuit_compute_wires circuit_zero [] = [false].
+Proof.
+  auto.
+Qed.
+
+Lemma circuit_zero_spec :
+  circuit_compute circuit_zero [] = [false].
 Proof.
   auto.
 Qed.
@@ -153,9 +170,16 @@ Next Obligation.
   simpl. lia.
 Qed.
 
-Lemma circuit_nand_spec :
+Lemma circuit_nand_spec_wires :
   forall i j,
   circuit_compute_wires circuit_nand [i; j] = [i; j; nandb i j].
+Proof.
+  auto.
+Qed.
+
+Lemma circuit_nand_spec :
+  forall i j,
+  circuit_compute circuit_nand [i; j] = [nandb i j].
 Proof.
   auto.
 Qed.
@@ -210,7 +234,7 @@ Qed.
 
 Set Program Cases.
 
-Lemma circuit_add_spec :
+Lemma circuit_add_spec_wires :
   forall c_parent c_child input_wires
   (H1 : length input_wires = circuit_input_count c_child)
   (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires),
@@ -301,4 +325,77 @@ Proof.
                  rewrite List.map_length. subst c_child_inputs. rewrite length_list_select.
                  lia.
     + intros wire_values b. destruct b; auto.
+Qed.
+
+Definition circuit_add_parent_wires c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) :=
+  List.seq 0 (length (circuit_wires c_parent)).
+
+Definition circuit_add_child_wires c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) :=
+  List.seq (length (circuit_wires c_parent) + circuit_input_count c_child) (length (circuit_wires c_child)).
+
+Definition circuit_add_child_output_wires c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) :=
+  list_select (circuit_add_child_wires c_parent c_child input_wires H1 H2) (circuit_outputs c_child) 0.
+
+Lemma circuit_add_spec_parent_wires :
+  forall c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires),
+  forall inputs, length inputs = circuit_input_count c_parent ->
+  list_select (circuit_compute_wires (circuit_add c_parent c_child input_wires H1 H2) inputs)
+    (circuit_add_parent_wires c_parent c_child input_wires H1 H2) false =
+    circuit_compute_wires c_parent inputs.
+Proof.
+  intros c_parent c_child input_wires H1 H2. intros inputs H3. rewrite (circuit_add_spec_wires _ _ _ _ _ _ H3).
+  unfold circuit_add_parent_wires.
+  replace (List.seq 0 (length (circuit_wires c_parent)))
+    with (List.seq 0 (length (circuit_compute_wires c_parent inputs))).
+  - apply list_select_app_1_seq.
+  - f_equal. apply length_circuit_compute_wires.
+Qed.
+
+Lemma circuit_add_spec_child_wires :
+  forall c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires),
+  forall inputs, length inputs = circuit_input_count c_parent ->
+  list_select (circuit_compute_wires (circuit_add c_parent c_child input_wires H1 H2) inputs)
+    (circuit_add_child_wires c_parent c_child input_wires H1 H2) false =
+    circuit_compute_wires c_child (list_select (circuit_compute_wires c_parent inputs) input_wires false).
+Proof.
+  intros c_parent c_child input_wires H1 H2. intros inputs H3. rewrite (circuit_add_spec_wires _ _ _ _ _ _ H3).
+  unfold circuit_add_child_wires. rewrite List.app_assoc.
+  replace (List.seq (length (circuit_wires c_parent) + circuit_input_count c_child)
+      (length (circuit_wires c_child)))
+    with (List.seq (length (circuit_compute_wires c_parent inputs ++
+      List.map negb (list_select (circuit_compute_wires c_parent inputs) input_wires false)))
+      (length (circuit_compute_wires c_child (list_select (circuit_compute_wires c_parent inputs)
+      input_wires false)))).
+  - apply list_select_app_2_seq.
+  - f_equal.
+    + rewrite List.app_length. f_equal.
+      * apply length_circuit_compute_wires.
+      * rewrite List.map_length. rewrite length_list_select. auto.
+    + apply length_circuit_compute_wires.
+Qed.
+
+Lemma circuit_add_spec_child_output_wires :
+  forall c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires),
+  forall inputs, length inputs = circuit_input_count c_parent ->
+  list_select (circuit_compute_wires (circuit_add c_parent c_child input_wires H1 H2) inputs)
+    (circuit_add_child_output_wires c_parent c_child input_wires H1 H2) false =
+    circuit_compute c_child (list_select (circuit_compute_wires c_parent inputs) input_wires false).
+Proof.
+  intros c_parent c_child input_wires H1 H2. intros inputs H3.
+  unfold circuit_compute. rewrite <- (circuit_add_spec_child_wires _ _ _ H1 H2 _ H3).
+  unfold circuit_add_child_output_wires. apply list_select_com.
+  apply (list_forall_incr _ _ _ (circuit_outputs_wf c_child)). intros i H4.
+  unfold circuit_add_child_wires. rewrite List.seq_length. auto.
 Qed.

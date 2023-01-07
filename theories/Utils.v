@@ -230,6 +230,16 @@ Proof.
   - simpl. auto.
 Qed.
 
+Lemma list_map_ext_precise :
+  forall {A B} (f1 f2 : _ -> B) (l : list A),
+  list_forall (fun x => f1 x = f2 x) l ->
+  List.map f1 l = List.map f2 l.
+Proof.
+  intros A B f1 f2 l H. induction l as [ | z l' IH].
+  - auto.
+  - simpl in H. simpl. rewrite (proj1 H). f_equal. apply IH. intuition auto.
+Qed.
+
 Fixpoint list_init_aux {A} f s n : list A :=
   match n with
   | 0 => []
@@ -262,4 +272,32 @@ Lemma length_list_select :
   length (list_select values indices default) = length indices.
 Proof.
   intros A values indices default. unfold list_select. apply List.map_length.
+Qed.
+
+Lemma list_select_app_1_seq :
+  forall {A} values_1 values_2 (default : A),
+  list_select (values_1 ++ values_2) (List.seq 0 (length values_1)) default = values_1.
+Proof.
+  intros A values_1 values_2 default. unfold list_select. induction values_1 as [ | x values_1' IH].
+  - auto.
+  - simpl. rewrite <- List.seq_shift. rewrite List.map_map. rewrite IH. auto.
+Qed.
+
+Lemma list_select_app_2_seq :
+  forall {A} values_1 values_2 (default : A),
+  list_select (values_1 ++ values_2) (List.seq (length values_1) (length values_2)) default = values_2.
+Proof.
+  intros A values_1 values_2 default. unfold list_select. induction values_1 as [ | x values_1' IH].
+  - simpl. rewrite <- (list_select_app_1_seq values_2 [] default) at 2. rewrite List.app_nil_r. auto.
+  - simpl. rewrite <- List.seq_shift. rewrite List.map_map. rewrite IH. auto.
+Qed.
+
+Lemma list_select_com :
+  forall {A} l1 l2 l3 (default : A),
+  list_forall (fun i => i < length l2) l3 ->
+  list_select l1 (list_select l2 l3 0) default =
+  list_select (list_select l1 l2 default) l3 default.
+Proof.
+  intros A l1 l2 l3 default H. unfold list_select. rewrite List.map_map. apply list_map_ext_precise.
+  apply (list_forall_incr _ _ _ H). intros i H1. apply List.nth_nth_nth_map. auto.
 Qed.
