@@ -1,6 +1,6 @@
+Require Import Utils.
+Require Import Vector.
 Require Import VcpuPlugin.
-
-Open Scope bool_scope.
 
 Fixpoint bitvec_and {n} (bv1 bv2 : bitvec n) : bitvec n :=
   match n, bv1, bv2 with
