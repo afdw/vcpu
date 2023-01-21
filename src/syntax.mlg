@@ -7,6 +7,6 @@ DECLARE PLUGIN "vcpu-plugin.plugin"
 VERNAC COMMAND EXTEND MyDefine CLASSIFIED AS SIDEFF
 | [ "Compile" ident(id) ] ->
   {
-    Hello_world.compile id
+    Compiler.compile id
   }
 END

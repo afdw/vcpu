@@ -26,6 +26,14 @@ Record circuit := {
     list_forall (fun i => i < length circuit_wires) circuit_outputs;
 }.
 
+Register circuit as vcpu.circuit.type.
+Register Build_circuit as vcpu.circuit.constructor.
+Register circuit_input_count as vcpu.circuit.input_count.
+Register circuit_wires as vcpu.circuit.wires.
+Register circuit_outputs as vcpu.circuit.outputs.
+Register circuit_wires_wf as vcpu.circuit.wires_wf.
+Register circuit_outputs_wf as vcpu.circuit.outputs_wf.
+
 Definition circuit_compute_wires_aux start_wire_values wires inputs :=
   List.fold_left (fun wire_values b =>
     wire_values ++ [match b with
@@ -110,6 +118,8 @@ Qed.
 Next Obligation.
   simpl. auto.
 Qed.
+
+Register circuit_empty as vcpu.circuit.empty.
 
 Lemma circuit_empty_spec_wires :
   forall input_count,
@@ -234,6 +244,8 @@ Qed.
 
 Set Program Cases.
 
+Register circuit_add as vcpu.circuit.add.
+
 Lemma circuit_add_spec_wires :
   forall c_parent c_child input_wires
   (H1 : length input_wires = circuit_input_count c_child)
@@ -342,6 +354,8 @@ Definition circuit_add_child_output_wires c_parent c_child input_wires
   (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) :=
   list_select (circuit_add_child_wires c_parent c_child input_wires H1 H2) (circuit_outputs c_child) 0.
 
+Register circuit_add_child_output_wires as vcpu.circuit.add_child_output_wires.
+
 Lemma circuit_add_spec_parent_wires :
   forall c_parent c_child input_wires
   (H1 : length input_wires = circuit_input_count c_child)
@@ -399,3 +413,13 @@ Proof.
   apply (list_forall_incr _ _ _ (circuit_outputs_wf c_child)). intros i H4.
   unfold circuit_add_child_wires. rewrite List.seq_length. auto.
 Qed.
+
+Definition circuit_set_outputs c outputs (H : list_forall (fun i => i < length (circuit_wires c)) outputs) := {|
+  circuit_input_count := circuit_input_count c;
+  circuit_wires := circuit_wires c;
+  circuit_outputs := outputs;
+  circuit_wires_wf := circuit_wires_wf c;
+  circuit_outputs_wf := H;
+|}.
+
+Register circuit_set_outputs as vcpu.circuit.set_outputs.

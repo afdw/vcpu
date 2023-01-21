@@ -1,7 +1,7 @@
 Require Import Btauto.
 Require Import Lia.
 
-Obligation Tactic := idtac.
+#[global] Obligation Tactic := idtac.
 
 Require Coq.Lists.List.
 Import List.ListNotations.
