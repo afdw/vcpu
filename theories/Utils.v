@@ -11,9 +11,16 @@ Open Scope bool_scope.
 
 Definition nandb b1 b2 := negb (b1 && b2).
 
-Theorem nandb_negb : forall b, nandb b b = negb b.
+Lemma nandb_negb : forall b, nandb b b = negb b.
 Proof.
   intros b. unfold nandb. btauto.
+Qed.
+
+Lemma list_cons_app :
+  forall {A} (x : A) l,
+  [x] ++ l = x :: l.
+Proof.
+  auto.
 Qed.
 
 Fixpoint list_forall {A} f (l : list A) :=
@@ -51,6 +58,21 @@ Proof.
   intros A f l H. induction l as [ | x l' IH].
   - simpl. auto.
   - specialize (H x). simpl. auto.
+Qed.
+
+Lemma list_forall_list_seq :
+  forall f s n,
+  list_forall f (List.seq s n) <-> forall i, i < n -> f (s + i).
+Proof.
+  intros f s n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - simpl. intuition lia.
+  - simpl. rewrite IH. split.
+    + intros (H1 & H2). intros i H3. destruct i as [ | i'].
+      * rewrite PeanoNat.Nat.add_0_r. auto.
+      * rewrite PeanoNat.Nat.add_succ_r. apply H2. lia.
+    + intros H1. split.
+      * specialize (H1 0 ltac:(lia)). rewrite PeanoNat.Nat.add_0_r in H1. auto.
+      * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite PeanoNat.Nat.add_succ_r in H1. auto.
 Qed.
 
 Fixpoint list_forall_i_aux {A} f i (l : list A) :=
@@ -230,6 +252,17 @@ Proof.
   - simpl. auto.
 Qed.
 
+Lemma list_fold_left_app_list_map_singleton :
+  forall {A} (l : list A),
+  List.fold_left (@app A) (List.map (fun x => [x]) l) [] = l.
+Proof.
+  intros A l. cut (forall init, List.fold_left (@app A) (List.map (fun x => [x]) l) init = init ++ l).
+  - intros H. apply H.
+  - induction l as [ | x l' IH]; intros init.
+    + simpl. apply List.app_nil_end.
+    + simpl. rewrite IH. apply List.app_assoc_reverse.
+Qed.
+
 Lemma list_map_ext_precise :
   forall {A B} (f1 f2 : _ -> B) (l : list A),
   list_forall (fun x => f1 x = f2 x) l ->
@@ -247,6 +280,60 @@ Fixpoint list_init_aux {A} f s n : list A :=
   end.
 
 Definition list_init {A} f n : list A := list_init_aux f 0 n.
+
+Lemma length_list_init_aux :
+  forall {A} (f : _ -> A) s n,
+  length (list_init_aux f s n) = n.
+Proof.
+  intros A f s n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - auto.
+  - simpl. f_equal. apply IH.
+Qed.
+
+Lemma length_list_init :
+  forall {A} (f : _ -> A) n,
+  length (list_init f n) = n.
+Proof.
+  intros A f n. apply (length_list_init_aux _ 0 _).
+Qed.
+
+Lemma list_init_aux_list_map_list_seq :
+  forall {A} (f : _ -> A) s n,
+  list_init_aux f s n = List.map f (List.seq s n).
+Proof.
+  intros A f s n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - auto.
+  - simpl. f_equal. apply IH.
+Qed.
+
+Lemma list_init_list_map_list_seq :
+  forall {A} (f : _ -> A) n,
+  list_init f n = List.map f (List.seq 0 n).
+Proof.
+  intros A f n. apply list_init_aux_list_map_list_seq.
+Qed.
+
+Lemma list_forall_i_aux_i_list_init_aux :
+  forall {A} f s (g : _ -> A) n,
+  list_forall_i_aux f s (list_init_aux g s n) <-> forall i, i < n -> f (s + i) (g (s + i)).
+Proof.
+  intros A f s g n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - simpl. intuition lia.
+  - simpl. specialize (IH (S s)). rewrite IH. split.
+    + intros (H1 & H2). intros i H3. destruct i as [ | i'].
+      * rewrite ? PeanoNat.Nat.add_0_r. auto.
+      * rewrite ? PeanoNat.Nat.add_succ_r. apply H2. lia.
+    + intros H1. split.
+      * specialize (H1 0 ltac:(lia)). rewrite ? PeanoNat.Nat.add_0_r in H1. auto.
+      * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite ? PeanoNat.Nat.add_succ_r in H1. auto.
+Qed.
+
+Lemma list_forall_i_list_init :
+  forall {A} f (g : _ -> A) n,
+  list_forall_i f (list_init g n) <-> forall i, i < n -> f i (g i).
+Proof.
+  intros A f g n. apply (list_forall_i_aux_i_list_init_aux _ 0 _ _).
+Qed.
 
 Lemma list_fold_left_list_init_aux :
   forall {A B} f (g : _ -> B) s n (x : A),

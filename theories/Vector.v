@@ -30,12 +30,14 @@ Notation bitvec := (vector bool).
 
 Unset Program Cases.
 
-#[program] Definition vector_and {n} (bv1 bv2 : bitvec n) : bitvec n := {|
-  vector_list := List.map (fun '(b1, b2) => b1 && b2) (List.combine (vector_list bv1) (vector_list bv2));
+#[program] Definition vector_map2 f {n} (bv1 bv2 : bitvec n) : bitvec n := {|
+  vector_list := List.map (fun '(b1, b2) => f b1 b2) (List.combine (vector_list bv1) (vector_list bv2));
 |}.
 Next Obligation.
-  intros n bv1 bv2. rewrite List.map_length. rewrite List.combine_length. rewrite ? vector_wf.
+  intros f n bv1 bv2. rewrite List.map_length. rewrite List.combine_length. rewrite ? vector_wf.
   apply PeanoNat.Nat.min_id.
 Qed.
 
 Set Program Cases.
+
+Definition vector_and {n} (bv1 bv2 : bitvec n) : bitvec n := vector_map2 andb bv1 bv2.

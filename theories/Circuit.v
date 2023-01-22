@@ -92,28 +92,23 @@ Proof.
   - f_equal. apply List.app_assoc.
 Qed.
 
+Definition circuit_set_outputs c outputs (H : list_forall (fun i => i < length (circuit_wires c)) outputs) := {|
+  circuit_input_count := circuit_input_count c;
+  circuit_wires := circuit_wires c;
+  circuit_outputs := outputs;
+  circuit_wires_wf := circuit_wires_wf c;
+  circuit_outputs_wf := H;
+|}.
+
+Register circuit_set_outputs as vcpu.circuit.set_outputs.
+
 #[program] Definition circuit_empty input_count := {|
   circuit_input_count := input_count;
   circuit_wires := list_init (fun i => binding_Input i) input_count;
   circuit_outputs := [];
 |}.
 Next Obligation.
-  intros input_count. unfold list_forall_i, list_init.
-  cut (
-    forall s, list_forall_i_aux (fun i b =>
-      match b with
-      | binding_Zero => True
-      | binding_Input j => j < s + input_count
-      | binding_Nand j k => j < i /\ k < i
-      end
-    ) s (list_init_aux (fun i => binding_Input i) s input_count)
-  ).
-  - intros H. apply (H 0).
-  - induction input_count as [ | input_count IH]; intros s.
-    + simpl. auto.
-    + simpl. split.
-      * lia.
-      * rewrite <- PeanoNat.Nat.add_succ_comm. apply (IH (S s)).
+  intros input_count. rewrite list_forall_i_list_init. auto.
 Qed.
 Next Obligation.
   simpl. auto.
@@ -156,6 +151,8 @@ Next Obligation.
   simpl. lia.
 Qed.
 
+Register circuit_zero as vcpu.circuit.zero.
+
 Lemma circuit_zero_spec_wires :
   circuit_compute_wires circuit_zero [] = [false].
 Proof.
@@ -164,6 +161,32 @@ Qed.
 
 Lemma circuit_zero_spec :
   circuit_compute circuit_zero [] = [false].
+Proof.
+  auto.
+Qed.
+
+#[program] Definition circuit_one := {|
+  circuit_input_count := 0;
+  circuit_wires := [binding_Zero; binding_Nand 0 0];
+  circuit_outputs := [1];
+|}.
+Next Obligation.
+  unfold list_forall_i. simpl. lia.
+Qed.
+Next Obligation.
+  simpl. lia.
+Qed.
+
+Register circuit_one as vcpu.circuit.one.
+
+Lemma circuit_one_spec_wires :
+  circuit_compute_wires circuit_one [] = [false; true].
+Proof.
+  auto.
+Qed.
+
+Lemma circuit_one_spec :
+  circuit_compute circuit_one [] = [true].
 Proof.
   auto.
 Qed.
@@ -414,12 +437,122 @@ Proof.
   unfold circuit_add_child_wires. rewrite List.seq_length. auto.
 Qed.
 
-Definition circuit_set_outputs c outputs (H : list_forall (fun i => i < length (circuit_wires c)) outputs) := {|
-  circuit_input_count := circuit_input_count c;
-  circuit_wires := circuit_wires c;
-  circuit_outputs := outputs;
-  circuit_wires_wf := circuit_wires_wf c;
-  circuit_outputs_wf := H;
+#[program] Definition circuit_switch data_size := {|
+  circuit_input_count := 1 + 2 * data_size;
+  circuit_wires :=
+    list_init (fun i => binding_Input i) (1 + 2 * data_size) ++
+    binding_Nand 0 0 ::
+    list_init (fun i => binding_Nand (1 + 2 * data_size) (1 + i)) data_size ++
+    list_init (fun i => binding_Nand 0 (1 + data_size + i)) data_size ++
+    list_init (fun i => binding_Nand (2 + 2 * data_size + i) (2 + 3 * data_size + i)) data_size;
+  circuit_outputs := List.seq (2 + 4 * data_size) data_size;
 |}.
+Next Obligation.
+  intros data_size. rewrite list_forall_i_app; split.
+  - rewrite list_forall_i_list_init. auto.
+  - simpl; split.
+    + lia.
+    + rewrite list_forall_i_aux_app; split.
+      * rewrite list_forall_i_aux_equiv. rewrite list_forall_i_list_init.
+        intros i H. rewrite length_list_init_aux. lia.
+      * rewrite list_forall_i_aux_app; split.
+        -- rewrite list_forall_i_aux_equiv. rewrite list_forall_i_list_init.
+           intros i H. rewrite length_list_init_aux. lia.
+        -- rewrite list_forall_i_aux_equiv. rewrite list_forall_i_list_init.
+           intros i H. rewrite length_list_init_aux, ? length_list_init. lia.
+Qed.
+Next Obligation.
+  intros data_size. rewrite list_forall_list_seq. rewrite List.app_length. simpl.
+  rewrite ? List.app_length. rewrite length_list_init_aux, ? length_list_init. lia.
+Qed.
 
-Register circuit_set_outputs as vcpu.circuit.set_outputs.
+Register circuit_switch as vcpu.circuit.switch.
+
+Lemma circuit_switch_spec_wires :
+  forall data_size,
+  forall inputs, length inputs = 1 + 2 * data_size ->
+  circuit_compute_wires (circuit_switch data_size) inputs =
+    inputs ++
+    negb (List.nth 0 inputs false) ::
+    List.map (fun b => nandb (negb (List.nth 0 inputs false)) b)
+      (list_select inputs (List.seq 1 data_size) false) ++
+    List.map (fun b => nandb (List.nth 0 inputs false) b)
+      (list_select inputs (List.seq (1 + data_size) data_size) false) ++
+    if List.nth 0 inputs false
+    then list_select inputs (List.seq (1 + data_size) data_size) false
+    else list_select inputs (List.seq 1 data_size) false.
+Proof.
+  intros data_size. intros inputs H1. unfold circuit_compute_wires, circuit_switch. cbv [circuit_wires].
+  rewrite circuit_compute_wires_aux_app. simpl. f_equal.
+  - apply (circuit_empty_spec_wires (1 + 2 * data_size) inputs H1).
+  - specialize (circuit_empty_spec_wires (1 + 2 * data_size) inputs H1) as H2.
+    unfold circuit_compute_wires, circuit_empty in H2. simpl in H2. rewrite H2. clear H2.
+    rewrite <- list_cons_app. rewrite circuit_compute_wires_aux_app.
+    assert (A1 : circuit_compute_wires_aux inputs [binding_Nand 0 0] inputs =
+        [negb (List.nth 0 inputs false)]). {
+      cbn. rewrite nandb_negb. rewrite List.app_nil_r. auto.
+    }
+    rewrite A1. simpl. f_equal. destruct inputs as [ | b inputs'].
+    + simpl in H1. congruence.
+    + simpl in H1. injection H1 as H1. simpl. rewrite circuit_compute_wires_aux_app. simpl.
+      assert (A2 : circuit_compute_wires_aux (b :: inputs' ++ [negb b])
+          (list_init (fun i => binding_Nand (S (data_size + (data_size + 0))) (S i)) data_size) 
+          (b :: inputs') =
+          List.map (fun b' => nandb (negb b) b') (list_select (b :: inputs') (List.seq 1 data_size) false)). {
+        unfold circuit_compute_wires_aux. rewrite list_fold_left_list_init.
+        rewrite list_fold_left_ext_precise with (f2 := fun wire_values i =>
+          wire_values ++ [nandb (negb b) (List.nth i inputs' false)]).
+        - rewrite <- list_fold_left_list_init. rewrite list_init_list_map_list_seq.
+          rewrite <- (List.map_map _ (fun x => [x])). rewrite list_fold_left_app_list_map_singleton.
+          unfold list_select. rewrite List.map_map. rewrite <- List.seq_shift. rewrite List.map_map.
+          simpl. auto.
+        - intros wire_values. rewrite list_forall_list_seq. intros i H2. do 3 f_equal.
+           + rewrite List.app_nth1.
+              * simpl. rewrite List.app_nth2.
+                -- rewrite H1. rewrite PeanoNat.Nat.sub_diag. auto.
+                -- lia.
+              * simpl. rewrite List.app_length. simpl. lia.
+           + simpl. rewrite <- List.app_assoc. apply List.app_nth1. lia.
+      }
+      rewrite ? A2. f_equal. rewrite ? List.app_comm_cons. rewrite circuit_compute_wires_aux_app. simpl.
+      assert (A3 : circuit_compute_wires_aux
+          (b :: (inputs' ++ [negb b]) ++
+             List.map (fun b' => nandb (negb b) b') (list_select (b :: inputs') (List.seq 1 data_size) false))
+          (list_init (fun i : nat => binding_Nand 0 (S (data_size + i))) data_size) (b :: inputs') =
+          List.map (fun b' => nandb b b') (list_select (b :: inputs')
+            (List.seq (S data_size) data_size) false)). {
+        admit.
+      }
+      rewrite ? A3. f_equal. destruct b.
+      * unfold nandb. simpl. unfold circuit_compute_wires_aux. rewrite list_fold_left_list_init.
+        simpl. admit.
+      * admit.
+Admitted.
+
+Lemma circuit_switch_spec :
+  forall data_size,
+  forall inputs, length inputs = 1 + 2 * data_size ->
+  circuit_compute (circuit_switch data_size) inputs =
+    if List.nth 0 inputs false
+    then list_select inputs (List.seq (1 + data_size) data_size) false
+    else list_select inputs (List.seq 1 data_size) false.
+Proof.
+  intros data_size. intros inputs H1. unfold circuit_compute. rewrite (circuit_switch_spec_wires _ _ H1).
+  rewrite <- list_cons_app. rewrite ? List.app_assoc. simpl.
+  assert (A1 : List.length (((inputs ++ [negb (List.nth 0 inputs false)]) ++
+      List.map (fun b : bool => nandb (negb (List.nth 0 inputs false)) b)
+        (list_select inputs (List.seq 1 data_size) false)) ++
+      List.map (fun b : bool => nandb (List.nth 0 inputs false) b)
+        (list_select inputs (List.seq (S data_size) data_size) false)) =
+        S (S (data_size + (data_size + (data_size + (data_size + 0)))))). {
+    rewrite ? List.app_length. rewrite H1. rewrite ? List.map_length. rewrite ? length_list_select.
+    rewrite ? List.seq_length. simpl. lia.
+  }
+  assert (A2 : List.length (if List.nth 0 inputs false
+      then list_select inputs (List.seq (S data_size) data_size) false
+      else list_select inputs (List.seq 1 data_size) false) =
+      data_size). {
+    destruct (List.nth 0 inputs false); rewrite length_list_select; apply List.seq_length.
+  }
+  rewrite <- A2 at 11. rewrite <- A1. apply list_select_app_2_seq.
+Qed.
