@@ -10,6 +10,11 @@ Inductive binding :=
   | binding_Input (i : nat)
   | binding_Nand (i j : nat).
 
+Register binding as vcpu.binding.type.
+Register binding_Zero as vcpu.binding.Zero.
+Register binding_Input as vcpu.binding.Input.
+Register binding_Nand as vcpu.binding.Nand.
+
 Record circuit := {
   circuit_input_count : nat;
   circuit_wires : list binding;

@@ -177,6 +177,33 @@ Proof.
   - specialize (IH (S s)). simpl. intuition auto.
 Qed.
 
+Fixpoint list_forallb_i_aux {A} f i (l : list A) :=
+  match l with
+  | [] => true
+  | x :: l' => f i x && list_forallb_i_aux f (S i) l'
+  end.
+
+Definition list_forallb_i {A} f (l : list A) := list_forallb_i_aux f 0 l.
+
+Lemma list_forallb_i_aux_reflect :
+  forall {A} f g i (l : list A),
+  (forall j x, Bool.reflect (f j x) (g j x)) ->
+  Bool.reflect (list_forall_i_aux f i l) (list_forallb_i_aux g i l).
+Proof.
+  intros A f g i l H. generalize dependent i. induction l as [ | x l' IH]; intros i.
+  - simpl. apply Bool.ReflectT. auto.
+  - simpl. specialize (IH (S i)). specialize (H i x).
+    apply Bool.reflect_iff in IH. apply Bool.reflect_iff in H. apply Bool.iff_reflect. intuition auto.
+Qed.
+
+Lemma list_forallb_i_reflect :
+  forall {A} f g (l : list A),
+  (forall j x, Bool.reflect (f j x) (g j x)) ->
+  Bool.reflect (list_forall_i f l) (list_forallb_i g l).
+Proof.
+  intros A f g l H. apply (list_forallb_i_aux_reflect _ _ _ _ H).
+Qed.
+
 Lemma list_fold_left_ext_precise :
   forall {A B} f1 f2 (l : list B) (x : A),
   (forall y, list_forall (fun z => f1 y z = f2 y z) l) ->

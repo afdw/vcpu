@@ -81,17 +81,74 @@ let mk_conj (env : Environ.env) (sigma : Evd.evar_map) (h1 : EConstr.t) (h2 : EC
   EConstr.mkApp (get_ref env "core.and.conj", [|Retyping.get_type_of env sigma h1; Retyping.get_type_of env sigma h2; h1; h2|])
 
 let circuit_input_count (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : int =
-  EConstr.mkApp (get_ref env "vcpu.circuit.input_count", [|c|])
-    |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
-    |> of_nat env sigma
+  match c |> EConstr.kind sigma with
+  | App (constructor, [|c_input_count_constr; _; _; _; _|]) ->
+    c_input_count_constr |> of_nat env sigma
+  | _ ->
+    EConstr.mkApp (get_ref env "vcpu.circuit.input_count", [|c|])
+      |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
+      |> of_nat env sigma
 
 let circuit_wires (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : EConstr.t list =
-  EConstr.mkApp (get_ref env "vcpu.circuit.wires", [|c|])
-    |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
-    |> of_list env sigma
+  match c |> EConstr.kind sigma with
+  | App (constructor, [|_; c_wires_constr; _; _; _|]) ->
+    c_wires_constr |> of_list env sigma
+  | _ ->
+    EConstr.mkApp (get_ref env "vcpu.circuit.wires", [|c|])
+      |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
+      |> of_list env sigma
+
+let circuit_wire_count (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : int =
+  match c |> EConstr.kind sigma with
+  | App (constructor, [|_; c_wires_constr; _; _; _|]) ->
+    c_wires_constr |> of_list env sigma |> List.length
+  | _ ->
+    let typ = EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "vcpu.binding.type"|]) in
+    EConstr.mkApp (get_ref env "core.list.length", [|typ; EConstr.mkApp (get_ref env "vcpu.circuit.wires", [|c|])|])
+      |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
+      |> of_nat env sigma
+
+let circuit_outputs (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : int list =
+  match c |> EConstr.kind sigma with
+  | App (constructor, [|_; _; c_outputs_constr; _; _|]) ->
+    c_outputs_constr |> of_list env sigma |> List.map (of_nat env sigma)
+  | _ ->
+    EConstr.mkApp (get_ref env "vcpu.circuit.outputs", [|c|])
+      |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
+      |> of_list env sigma
+      |> List.map (of_nat env sigma)
+
+let circuit_normalize (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : EConstr.t =
+  match c |> Redexpr.cbv_vm env sigma |> EConstr.kind sigma with
+  | App (constructor, [|c_input_count_constr; c_wires_constr; c_outputs_constr; _; _|]) ->
+    let c_input_count = c_input_count_constr |> of_nat env sigma in
+    let c_wires = c_wires_constr |> of_list env sigma in
+    let c_outputs = c_outputs_constr |> of_list env sigma |> List.map (of_nat env sigma) in
+    let c_wires_wf =
+      List.fold_right2 (fun i b t ->
+        let (constructor, args) = EConstr.decompose_app sigma b in
+        let t' =
+          match EConstr.kind sigma constructor, args with
+          | _, [] when EConstr.eq_constr sigma constructor (get_ref env "vcpu.binding.Zero") ->
+            get_ref env "core.True.I"
+          | _, [j_constr] when EConstr.eq_constr sigma constructor (get_ref env "vcpu.binding.Input") ->
+            prove_nat_lt env (j_constr |> of_nat env sigma) c_input_count
+          | _, [j_constr; k_constr] when EConstr.eq_constr sigma constructor (get_ref env "vcpu.binding.Nand") ->
+            mk_conj env sigma
+              (prove_nat_lt env (j_constr |> of_nat env sigma) i)
+              (prove_nat_lt env (k_constr |> of_nat env sigma) i)
+          | _ -> assert false in
+        mk_conj env sigma t' t
+      ) (List.init (c_wires |> List.length) (fun i -> i)) c_wires (get_ref env "core.True.I") in
+    let c_outputs_wf =
+      List.fold_right (fun i t ->
+        mk_conj env sigma (prove_nat_lt env i (c_wires |> List.length)) t
+      ) c_outputs (get_ref env "core.True.I") in
+    EConstr.mkApp (constructor, [|c_input_count_constr; c_wires_constr; c_outputs_constr; c_wires_wf; c_outputs_wf|])
+  | _ -> assert false
 
 let circuit_set_outputs (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) (outputs : int list) : EConstr.t =
-  let c_wire_count = circuit_wires env sigma c |> List.length in
+  let c_wire_count = circuit_wire_count env sigma c in
   EConstr.mkApp (
     get_ref env "vcpu.circuit.set_outputs",
     [|
@@ -104,15 +161,15 @@ let circuit_set_outputs (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.
   )
 
 let circuit_empty (env : Environ.env) (input_count : int) : EConstr.t =
-  EConstr.mkApp (get_ref env "vcpu.circuit.empty", [|to_nat env input_count|])
+  EConstr.mkApp (get_ref env "vcpu.circuit.empty", [|to_nat env input_count|]) |> circuit_normalize env (Evd.from_env env)
 
-let circuit_zero (env : Environ.env) : EConstr.t = get_ref env "vcpu.circuit.zero"
+let circuit_zero (env : Environ.env) : EConstr.t = get_ref env "vcpu.circuit.zero" |> circuit_normalize env (Evd.from_env env)
 
-let circuit_one (env : Environ.env) : EConstr.t = get_ref env "vcpu.circuit.one"
+let circuit_one (env : Environ.env) : EConstr.t = get_ref env "vcpu.circuit.one" |> circuit_normalize env (Evd.from_env env)
 
 let circuit_add (env : Environ.env) (sigma : Evd.evar_map) (c_parent : EConstr.t) (c_child : EConstr.t)
     (input_wires : int list) : EConstr.t * int list =
-  let c_parent_wire_count = circuit_wires env sigma c_parent |> List.length in
+  let c_parent_wire_count = circuit_wire_count env sigma c_parent in
   let input_wires_term = input_wires |> List.map (to_nat env) |> to_list env (get_ref env "num.nat.type") in
   let h1 = prove_nat_eq env (input_wires |> List.length) in
   let h2 =
@@ -123,14 +180,15 @@ let circuit_add (env : Environ.env) (sigma : Evd.evar_map) (c_parent : EConstr.t
     EConstr.mkApp (
       get_ref env "vcpu.circuit.add",
       [|c_parent; c_child; input_wires_term; h1; h2|]
-    ),
-    EConstr.mkApp (
+    ) |> circuit_normalize env sigma,
+    circuit_outputs env sigma c_child |> List.map (fun i -> c_parent_wire_count + List.length input_wires + i)
+    (* EConstr.mkApp (
       get_ref env "vcpu.circuit.add_child_output_wires",
       [|c_parent; c_child; input_wires_term; h1; h2|]
     )
       |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma)
       |> of_list env sigma
-      |> List.map (of_nat env sigma)
+      |> List.map (of_nat env sigma) *)
   )
 
 let circuit_switch (env : Environ.env) (data_size : int) : EConstr.t =
@@ -432,7 +490,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
     (sigma, c_source'') in
 
   (* Feedback.msg_notice Pp.(str "return" ++ spc () ++ Printer.pr_econstr_env env sigma c_source'); *)
-  (input_mapping, c_source')
+  (input_mapping, c_source' |> circuit_normalize env sigma)
 
 let compile (id : Names.Id.t) : unit =
   let env = Global.env () in
