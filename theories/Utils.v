@@ -9,6 +9,8 @@ Import List.ListNotations.
 Open Scope list_scope.
 Open Scope bool_scope.
 
+Infix "^^" := xorb (at level 40, left associativity) : bool_scope.
+
 Definition nandb b1 b2 := negb (b1 && b2).
 
 Lemma nandb_negb : forall b, nandb b b = negb b.
@@ -388,3 +390,15 @@ Proof.
   intros A l1 l2 l3 default H. unfold list_select. rewrite List.map_map. apply list_map_ext_precise.
   apply (list_forall_incr _ _ _ H). intros i H1. apply List.nth_nth_nth_map. auto.
 Qed.
+
+Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=
+  match l1, l2 with
+  | y :: l1', z :: l2' => list_fold_left2 f l1' l2' (f x y z)
+  | _, _ => x
+  end.
+
+Fixpoint list_fold_right2 {A B C} (f : B -> C -> A -> A) (x : A) (l1 : list B) (l2 : list C) : A :=
+  match l1, l2 with
+  | y :: l1', z :: l2' => f y z (list_fold_right2 f x l1' l2')
+  | _, _ => x
+  end.
