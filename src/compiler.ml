@@ -242,7 +242,7 @@ let circuit_one : circuit =
 
 let circuit_add (c_parent : circuit) (c_child : circuit) (input_wires : int list) : circuit * int list =
   assert (List.length input_wires = c_child.circuit_input_count);
-  (
+  (* (
     {
       circuit_input_count = c_parent.circuit_input_count;
       circuit_wires =
@@ -274,6 +274,35 @@ let circuit_add (c_parent : circuit) (c_child : circuit) (input_wires : int list
         )
     },
     c_child.circuit_outputs |> List.map (fun i -> List.length c_parent.circuit_wires + List.length input_wires + i)
+  ) *)
+  (
+    {
+      circuit_input_count = c_parent.circuit_input_count;
+      circuit_wires =
+        c_parent.circuit_wires @
+        (c_child.circuit_wires |> List.map (fun b ->
+          match b with
+          | Binding_zero -> Binding_zero
+          | Binding_input i ->
+            List.nth c_parent.circuit_wires (List.nth input_wires i)
+          | Binding_nand (i, j) ->
+            Binding_nand (List.length c_parent.circuit_wires + i, List.length c_parent.circuit_wires + j)
+        ));
+      circuit_outputs = c_parent.circuit_outputs;
+      circuit_constr = let env = Global.env () in let sigma = Evd.from_env env in
+        let input_wires_constr =
+          input_wires |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type") in
+        let h1 = prove_nat_eq env (input_wires |> List.length) in
+        let h2 =
+          List.fold_right (fun i t ->
+            mk_conj env sigma (prove_nat_lt env i (List.length c_parent.circuit_wires)) t
+          ) input_wires (get_ref env "core.True.I") in
+        EConstr.mkApp (
+          get_ref env "vcpu.circuit.add_fast",
+          [|c_parent.circuit_constr; c_child.circuit_constr; input_wires_constr; h1; h2|]
+        )
+    },
+    c_child.circuit_outputs |> List.map (fun i -> List.length c_parent.circuit_wires + i)
   )
 
 let circuit_switch (data_size : int) : circuit =
@@ -349,7 +378,7 @@ let rec verify_reduction_not_blocked (sigma : Evd.evar_map) (evars : EConstr.t l
 
 let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
     : (EConstr.t * int list) list * circuit =
-  Feedback.msg_notice Pp.(str "convert" ++ spc () ++ Printer.pr_econstr_env env sigma source);
+  (* Feedback.msg_notice Pp.(str "convert" ++ spc () ++ Printer.pr_econstr_env env sigma source); *)
 
   (* Reduce the source *)
   let source = Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.allnolet env sigma) source in
@@ -621,9 +650,9 @@ let compile (id : Names.Id.t) (native : bool) : unit =
           ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
           ~typ:(Some (get_ref env "vcpu.circuit.type"))
           () in
-        Term_typing.bypass := true;
-        Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body_constr sigma |> ignore;
-        Term_typing.bypass := false
+        (* Term_typing.bypass := true; *)
+        Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body_constr sigma |> ignore
+        (* Term_typing.bypass := false *)
       else
         let c_body_constr = c_body'' |> to_native_circuit_constr env in
         Feedback.msg_notice (Pp.str "Done constr");

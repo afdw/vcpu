@@ -103,7 +103,7 @@ Compute circuit_compute test5_circuit [true; false; true; false; false; false; f
   true; true; false; false; false; false; false; false].
   (* [false; false; false; true; false; false; false; false] *)
 
-Definition test6 := @adder 64.
+Definition test6 := @adder 128.
 
 NativeCompile test6.
 Print test6_native_circuit.

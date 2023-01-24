@@ -444,6 +444,33 @@ Proof.
   unfold circuit_add_child_wires. rewrite List.seq_length. auto.
 Qed.
 
+#[program] Definition circuit_add_fast c_parent c_child input_wires
+  (H1 : length input_wires = circuit_input_count c_child)
+  (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) := {|
+  circuit_input_count := circuit_input_count c_parent;
+  circuit_wires :=
+    circuit_wires c_parent ++
+    List.map (fun b =>
+      match b with
+      | binding_Zero => binding_Zero
+      | binding_Input i =>
+        List.nth (List.nth i input_wires 0) (circuit_wires c_parent) binding_Zero
+      | binding_Nand i j =>
+        binding_Nand (length (circuit_wires c_parent) + i) (length (circuit_wires c_parent) + j)
+      end
+    ) (circuit_wires c_child);
+  circuit_outputs := circuit_outputs c_parent;
+|}.
+Next Obligation.
+  intros c_parent c_child input_wires H1 H2. rewrite list_forall_i_app; split.
+  - apply (circuit_wires_wf c_parent).
+  - rewrite list_forall_i_aux_map. rewrite list_forall_i_aux_equiv.
+Admitted.
+Next Obligation.
+Admitted.
+
+Register circuit_add_fast as vcpu.circuit.add_fast.
+
 #[program] Definition circuit_switch data_size := {|
   circuit_input_count := 1 + 2 * data_size;
   circuit_wires :=
