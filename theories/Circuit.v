@@ -229,7 +229,9 @@ Unset Program Cases.
   (H2 : list_forall (fun i => i < length (circuit_wires c_parent)) input_wires) := {|
   circuit_input_count := circuit_input_count c_parent;
   circuit_wires :=
-    circuit_wires c_parent ++ List.map (fun i => binding_Nand i i) input_wires ++ List.map (fun b =>
+    circuit_wires c_parent ++
+    List.map (fun i => binding_Nand i i) input_wires ++
+    List.map (fun b =>
       match b with
       | binding_Zero => binding_Zero
       | binding_Input i =>
