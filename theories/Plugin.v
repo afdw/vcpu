@@ -1,6 +1,7 @@
 Require Import Utils.
 Require Import Vector.
 Require Import Circuit.
+Require Import NativeCircuit.
 
 Require Coq.Lists.List.
 Import List.ListNotations.
@@ -25,5 +26,7 @@ Proof.
 Qed.
 
 Register prove_le as vcpu.prove_le.
+
+Register int as int.
 
 Declare ML Module "vcpu_plugin:vcpu-plugin.plugin".

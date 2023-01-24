@@ -133,6 +133,15 @@ let to_binding_constr (env : Environ.env) (b : binding) : EConstr.t =
   | Binding_nand (i, j) ->
     EConstr.mkApp (get_ref env "vcpu.binding.Nand", [|i |> to_nat_constr env; j |> to_nat_constr env|])
 
+let to_native_binding_constr (env : Environ.env) (b : binding) : EConstr.t =
+  match b with
+  | Binding_zero ->
+    get_ref env "vcpu.native_binding.Zero"
+  | Binding_input i ->
+    EConstr.mkApp (get_ref env "vcpu.native_binding.Input", [|i |> Uint63.of_int |> EConstr.mkInt|])
+  | Binding_nand (i, j) ->
+    EConstr.mkApp (get_ref env "vcpu.native_binding.Nand", [|i |> Uint63.of_int |> EConstr.mkInt; j |> Uint63.of_int |> EConstr.mkInt|])
+
 type circuit = {
   circuit_input_count : int;
   circuit_wires : binding list;
@@ -162,6 +171,26 @@ let to_circuit_constr (env : Environ.env) (sigma : Evd.evar_map) (c : circuit) :
       c.circuit_outputs |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type");
       c_wires_wf;
       c_outputs_wf;
+    |]
+  )
+
+let to_native_circuit_constr (env : Environ.env) (c : circuit) : EConstr.t =
+  EConstr.mkApp (
+    get_ref env "vcpu.native_circuit.constructor",
+    [|
+      c.circuit_input_count |> Uint63.of_int |> EConstr.mkInt;
+      EConstr.mkArray (
+        Univ.Instance.of_array [|Univ.Level.set|] |> EConstr.EInstance.make,
+        c.circuit_wires |> List.map (to_native_binding_constr env) |> Array.of_list,
+        Binding_zero |> to_native_binding_constr env,
+        get_ref env "vcpu.native_binding.type"
+      );
+      EConstr.mkArray (
+        Univ.Instance.of_array [|Univ.Level.set|] |> EConstr.EInstance.make,
+        c.circuit_outputs |> List.map (fun i -> i |> Uint63.of_int |> EConstr.mkInt) |> Array.of_list,
+        0 |> Uint63.of_int |> EConstr.mkInt,
+        get_ref env "int"
+      );
     |]
   )
 
@@ -559,7 +588,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
   (* Feedback.msg_notice Pp.(str "return" ++ spc () ++ Printer.pr_econstr_env env sigma c_source'); *)
   (input_mapping, c_source')
 
-let compile (id : Names.Id.t) : unit =
+let compile (id : Names.Id.t) (native : bool) : unit =
   let env = Global.env () in
   ref_cache := [];
   let sigma = Evd.from_env env in
@@ -577,23 +606,34 @@ let compile (id : Names.Id.t) : unit =
       let (sigma, evar) = Evarutil.new_evar env sigma typ_in in
       let applied_body = EConstr.mkApp (body, [|evar|]) in
       let (input_mapping, c_applied_body) = convert env sigma [evar] applied_body in
-      Feedback.msg_notice (Pp.str "test");
+      Feedback.msg_notice (Pp.str "Start");
       let c_body = circuit_empty typ_in_size in
       let input_wires = if input_mapping = [] then [] else List.init typ_in_size (fun i -> i) in
       let (c_body', body_output_wires) = circuit_add c_body c_applied_body input_wires in
       let c_body'' = circuit_set_outputs c_body' body_output_wires in
-      Feedback.msg_notice (Pp.int (c_body''.circuit_wires |> List.length));
-      let c_body_constr = c_body''.circuit_constr in
-      Feedback.msg_notice (Pp.str "constr");
-      let info = Declare.Info.make () in
-      let cinfo =
-        Declare.CInfo.make
-        ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
-        ~typ:(Some (get_ref env "vcpu.circuit.type"))
-        () in
-      Term_typing.bypass := true;
-      Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body_constr sigma |> ignore;
-      Term_typing.bypass := false
+      Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_body''.circuit_wires |> List.length));
+      if not native then
+        let c_body_constr = c_body''.circuit_constr in
+        Feedback.msg_notice (Pp.str "Done constr");
+        let info = Declare.Info.make () in
+        let cinfo =
+          Declare.CInfo.make
+          ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
+          ~typ:(Some (get_ref env "vcpu.circuit.type"))
+          () in
+        Term_typing.bypass := true;
+        Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body_constr sigma |> ignore;
+        Term_typing.bypass := false
+      else
+        let c_body_constr = c_body'' |> to_native_circuit_constr env in
+        Feedback.msg_notice (Pp.str "Done constr");
+        let info = Declare.Info.make () in
+        let cinfo =
+          Declare.CInfo.make
+          ~name:((id |> Names.Id.to_string) ^ "_native_circuit" |> Names.Id.of_string)
+          ~typ:(Some (get_ref env "vcpu.native_circuit.type"))
+          () in
+        Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body_constr sigma |> ignore
     )
     | _ -> CErrors.user_err Pp.(str "Not a product:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
   )

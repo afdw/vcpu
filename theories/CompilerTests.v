@@ -1,5 +1,6 @@
 Require Import Utils.
 Require Import Circuit.
+Require Import NativeCircuit.
 Require Import Vector.
 Require Import Plugin.
 
@@ -99,3 +100,8 @@ Compute circuit_compute test5_circuit [true; false; true; false; false; false; f
 Compute circuit_compute test5_circuit [true; false; true; false; false; false; false; false;
   true; true; false; false; false; false; false; false].
   (* [false; false; false; true; false; false; false; false] *)
+
+Definition test6 := @adder 64.
+
+NativeCompile test6.
+Print test6_native_circuit.
