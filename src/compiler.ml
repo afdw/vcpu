@@ -137,6 +137,7 @@ type circuit = {
   circuit_input_count : int;
   circuit_wires : binding list;
   circuit_outputs : int list;
+  circuit_constr : EConstr.t;
 }
 
 let to_circuit_constr (env : Environ.env) (sigma : Evd.evar_map) (c : circuit) : EConstr.t =
@@ -170,6 +171,17 @@ let circuit_set_outputs (c : circuit) (outputs : int list) : circuit =
     circuit_input_count = c.circuit_input_count;
     circuit_wires = c.circuit_wires;
     circuit_outputs = outputs;
+    circuit_constr = let env = Global.env () in let sigma = Evd.from_env env in
+      EConstr.mkApp (
+        get_ref env "vcpu.circuit.set_outputs",
+        [|
+          c.circuit_constr;
+          outputs |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type");
+          List.fold_right (fun i t ->
+            mk_conj env sigma (prove_nat_lt env i (List.length c.circuit_wires)) t
+          ) outputs (get_ref env "core.True.I");
+        |]
+      );
   }
 
 let circuit_empty (input_count : int) : circuit =
@@ -177,6 +189,8 @@ let circuit_empty (input_count : int) : circuit =
     circuit_input_count = input_count;
     circuit_wires = List.init input_count (fun i -> Binding_input i);
     circuit_outputs = [];
+    circuit_constr = let env = Global.env () in
+      EConstr.mkApp (get_ref env "vcpu.circuit.empty", [|to_nat_constr env input_count|]);
   }
 
 let circuit_zero : circuit =
@@ -184,6 +198,8 @@ let circuit_zero : circuit =
     circuit_input_count = 0;
     circuit_wires = [Binding_zero];
     circuit_outputs = [0];
+    circuit_constr = let env = Global.env () in
+      get_ref env "vcpu.circuit.zero";
   }
 
 let circuit_one : circuit =
@@ -191,6 +207,8 @@ let circuit_one : circuit =
     circuit_input_count = 0;
     circuit_wires = [Binding_zero; Binding_nand (0, 0)];
     circuit_outputs = [1];
+    circuit_constr = let env = Global.env () in
+      get_ref env "vcpu.circuit.one";
   }
 
 let circuit_add (c_parent : circuit) (c_child : circuit) (input_wires : int list) : circuit * int list =
@@ -213,6 +231,18 @@ let circuit_add (c_parent : circuit) (c_child : circuit) (input_wires : int list
             )
         ));
       circuit_outputs = c_parent.circuit_outputs;
+      circuit_constr = let env = Global.env () in let sigma = Evd.from_env env in
+        let input_wires_constr =
+          input_wires |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type") in
+        let h1 = prove_nat_eq env (input_wires |> List.length) in
+        let h2 =
+          List.fold_right (fun i t ->
+            mk_conj env sigma (prove_nat_lt env i (List.length c_parent.circuit_wires)) t
+          ) input_wires (get_ref env "core.True.I") in
+        EConstr.mkApp (
+          get_ref env "vcpu.circuit.add",
+          [|c_parent.circuit_constr; c_child.circuit_constr; input_wires_constr; h1; h2|]
+        )
     },
     c_child.circuit_outputs |> List.map (fun i -> List.length c_parent.circuit_wires + List.length input_wires + i)
   )
@@ -227,6 +257,8 @@ let circuit_switch (data_size : int) : circuit =
       List.init data_size (fun i -> Binding_nand (0, 1 + data_size + i)) @
       List.init data_size (fun i -> Binding_nand (2 + 2 * data_size + i, 2 + 3 * data_size + i));
     circuit_outputs = List.init data_size (fun i -> 2 + 4 * data_size + i);
+    circuit_constr = let env = Global.env () in
+      EConstr.mkApp (get_ref env "vcpu.circuit.switch", [|to_nat_constr env data_size|])
   }
 
 let circuit_const (data : bool list) : circuit =
@@ -551,7 +583,7 @@ let compile (id : Names.Id.t) : unit =
       let (c_body', body_output_wires) = circuit_add c_body c_applied_body input_wires in
       let c_body'' = circuit_set_outputs c_body' body_output_wires in
       Feedback.msg_notice (Pp.int (c_body''.circuit_wires |> List.length));
-      let c_body_constr = c_body'' |> to_circuit_constr env sigma in
+      let c_body_constr = c_body''.circuit_constr in
       Feedback.msg_notice (Pp.str "constr");
       let info = Declare.Info.make () in
       let cinfo =
