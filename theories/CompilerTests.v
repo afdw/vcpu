@@ -56,11 +56,13 @@ Fixpoint list_add_aux bl1 bl2 bl_r c : list bool :=
   | _, _ => bl_r
   end.
 
-Eval cbv beta delta iota in fun a1 a2 a3 a4 b1 b2 b3 b4 => list_add_aux [a1; a2; a3; a4] [b1; b2; b3; b4] [].
 Compute list_add_aux [true; false; true; false] [false; true; false; false] [] false.
   (* [true; true; true; false] *)
 Compute list_add_aux [true; false; true; false] [true; true; false; false] [] false.
   (* [false; false; false; true] *)
+
+Eval cbv beta delta iota in fun a1 a2 a3 a4 b1 b2 b3 b4 =>
+  list_add_aux [a1; a2; a3; a4] [b1; b2; b3; b4] [].
 
 #[program] Definition vector_add {n} (bv1 bv2 : bitvec n) : bitvec n := {|
   vector_list := list_add_aux (vector_list bv1) (vector_list bv2) [] false;
@@ -93,7 +95,7 @@ Admitted.
 Definition test5 := @adder 8.
 
 Compile test5.
-Compute circuit_wires test5_circuit.
+Compute length (circuit_wires test5_circuit). (* 3075 *)
 Compute circuit_compute test5_circuit [true; false; true; false; false; false; false; false;
   false; true; false; false; false; false; false; false].
   (* [true; true; true; false; false; false; false; false] *)
@@ -105,3 +107,45 @@ Definition test6 := @adder 64.
 
 NativeCompile test6.
 Print test6_native_circuit.
+
+Definition add_one' (a b c_in : bool) : bool * bool :=
+  let t := a ^^ b in
+  (t ^^ c_in, c_in && t || a && b).
+
+Print and.
+
+Require Import Lia.
+
+Definition circuit_or := {|
+  circuit_input_count := 2;
+  circuit_wires := [binding_Input 0; binding_Input 1;
+    binding_Nand 0 0; binding_Nand 1 1; binding_Nand 2 3];
+  circuit_outputs := [4];
+  circuit_wires_wf := ltac:(cbv; lia);
+  circuit_outputs_wf := ltac:(simpl; lia);
+|}.
+
+Compute circuit_compute circuit_or [false; false]. (* false *)
+Compute circuit_compute circuit_or [false; true ]. (* true  *)
+Compute circuit_compute circuit_or [true;  false]. (* true  *)
+Compute circuit_compute circuit_or [true;  true ]. (* true  *)
+
+Definition add4' a1 a2 a3 a4 b1 b2 b3 b4 :=
+  let 'c := false in
+  let '(r1, c) := add_one a1 b1 c in
+  let '(r2, c) := add_one a2 b2 c in
+  let '(r3, c) := add_one a3 b3 c in
+  let '(r4, c) := add_one a4 b4 c in
+  [r1; r2; r3; r4].
+
+Eval cbv beta delta iota in add4'.
+
+Definition add4 a1 a2 a3 a4 b1 b2 b3 b4 :=
+  let 'c := false in
+  let '(r1, c) := (let x := add_one a1 b1 c in x) in
+  let '(r2, c) := (let x := add_one a2 b2 c in x) in
+  let '(r3, c) := (let x := add_one a3 b3 c in x) in
+  let '(r4, c) := (let x := add_one a4 b4 c in x) in
+  [r1; r2; r3; r4].
+
+Eval cbv beta delta iota in add4.
