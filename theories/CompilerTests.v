@@ -43,6 +43,8 @@ Definition test3 (_ : bitvec 0) : bitvec 2 := {|
 |}.
 
 Compile test3.
+Print test3_circuit.
+Compute test3_circuit.
 Compute circuit_compute test3_circuit [].
 
 Definition add_one (b1 b2 c : bool) : bool * bool :=
@@ -103,32 +105,15 @@ Compute circuit_compute test5_circuit [true; false; true; false; false; false; f
   true; true; false; false; false; false; false; false].
   (* [false; false; false; true; false; false; false; false] *)
 
-Definition test6 := @adder 128.
+Definition test6 := @adder 64.
 
-NativeCompile test6.
-Print test6_native_circuit.
+Compile test6.
 
 Definition add_one' (a b c_in : bool) : bool * bool :=
   let t := a ^^ b in
   (t ^^ c_in, c_in && t || a && b).
 
-Print and.
-
 Require Import Lia.
-
-Definition circuit_or := {|
-  circuit_input_count := 2;
-  circuit_wires := [binding_Input 0; binding_Input 1;
-    binding_Nand 0 0; binding_Nand 1 1; binding_Nand 2 3];
-  circuit_outputs := [4];
-  circuit_wires_wf := ltac:(cbv; lia);
-  circuit_outputs_wf := ltac:(simpl; lia);
-|}.
-
-Compute circuit_compute circuit_or [false; false]. (* false *)
-Compute circuit_compute circuit_or [false; true ]. (* true  *)
-Compute circuit_compute circuit_or [true;  false]. (* true  *)
-Compute circuit_compute circuit_or [true;  true ]. (* true  *)
 
 Definition add4' a1 a2 a3 a4 b1 b2 b3 b4 :=
   let 'c := false in

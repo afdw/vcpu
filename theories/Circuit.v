@@ -5,7 +5,192 @@ Require Import Lia.
 Require Coq.Lists.List.
 Import List.ListNotations.
 
+Inductive reference :=
+  | reference_Zero
+  | reference_One
+  | reference_Input (i : nat)
+  | reference_Wire (i : nat).
+
+Register reference as vcpu.reference.type.
+Register reference_Zero as vcpu.reference.Zero.
+Register reference_One as vcpu.reference.One.
+Register reference_Input as vcpu.reference.Input.
+Register reference_Wire as vcpu.reference.Wire.
+
 Inductive binding :=
+  | binding_Immidiate (r : reference)
+  | binding_Not (r : reference)
+  | binding_And (r1 r2 : reference)
+  | binding_Or (r1 r2 : reference)
+  | binding_If (r1 r2 r3 : reference).
+
+Register binding as vcpu.binding.type.
+Register binding_Immidiate as vcpu.binding.Immidiate.
+Register binding_Not as vcpu.binding.Not.
+Register binding_And as vcpu.binding.And.
+Register binding_Or as vcpu.binding.Or.
+Register binding_If as vcpu.binding.If.
+
+Record circuit := {
+  circuit_input_count : nat;
+  circuit_wires : list binding;
+  circuit_outputs : list nat;
+}.
+
+Register circuit as vcpu.circuit.type.
+Register Build_circuit as vcpu.circuit.constructor.
+Register circuit_input_count as vcpu.circuit.input_count.
+Register circuit_wires as vcpu.circuit.wires.
+Register circuit_outputs as vcpu.circuit.outputs.
+
+Definition reference_wf input_count wire_count r :=
+  match r with
+  | reference_Zero => True
+  | reference_One => True
+  | reference_Input i => i < input_count
+  | reference_Wire i => i < wire_count
+  end.
+
+Definition binding_wf input_count wire_count b :=
+  match b with
+  | binding_Immidiate r => reference_wf input_count wire_count r
+  | binding_Not r => reference_wf input_count wire_count r
+  | binding_And r1 r2 =>
+    reference_wf input_count wire_count r1 /\
+    reference_wf input_count wire_count r2
+  | binding_Or r1 r2 =>
+    reference_wf input_count wire_count r1 /\
+    reference_wf input_count wire_count r2
+  | binding_If r1 r2 r3 =>
+    reference_wf input_count wire_count r1 /\
+    reference_wf input_count wire_count r2 /\
+    reference_wf input_count wire_count r3
+  end.
+
+Definition circuit_wires_wf c :=
+  list_forall_i (binding_wf (circuit_input_count c)) (circuit_wires c).
+
+Definition circuit_outputs_wf c :=
+  list_forall (fun i => i < length (circuit_wires c)) (circuit_outputs c).
+
+Definition circuit_wf c :=
+  circuit_wires_wf c /\ circuit_outputs_wf c.
+
+Definition reference_compute inputs intermediates r :=
+  match r with
+  | reference_Zero => false
+  | reference_One => true
+  | reference_Input i => List.nth i inputs false
+  | reference_Wire i => List.nth i intermediates false
+  end.
+
+Definition binding_compute inputs intermediates b :=
+  match b with
+  | binding_Immidiate r => reference_compute inputs intermediates r
+  | binding_Not r => negb (reference_compute inputs intermediates r)
+  | binding_And r1 r2 =>
+    reference_compute inputs intermediates r1 && reference_compute inputs intermediates r2
+  | binding_Or r1 r2 =>
+    reference_compute inputs intermediates r1 || reference_compute inputs intermediates r2
+  | binding_If r1 r2 r3 =>
+    if reference_compute inputs intermediates r1
+    then reference_compute inputs intermediates r3
+    else reference_compute inputs intermediates r2
+  end.
+
+Definition circuit_compute_wires_aux start_intermediates wires inputs :=
+  List.fold_left (fun intermediates b =>
+    intermediates ++ [binding_compute inputs (start_intermediates ++ intermediates) b]
+  ) wires [].
+
+Definition circuit_compute_wires c inputs :=
+  circuit_compute_wires_aux [] (circuit_wires c) inputs.
+
+Definition circuit_compute c inputs :=
+  list_select (circuit_compute_wires c inputs) (circuit_outputs c) false.
+
+Definition circuit_set_outputs c outputs := {|
+  circuit_input_count := circuit_input_count c;
+  circuit_wires := circuit_wires c;
+  circuit_outputs := outputs;
+|}.
+
+Register circuit_set_outputs as vcpu.circuit.set_outputs.
+
+Definition circuit_add_translate_reference parent_wire_count input_references r :=
+  match r with
+  | reference_Zero => reference_Zero
+  | reference_One => reference_One
+  | reference_Input i => List.nth i input_references reference_Zero
+  | reference_Wire i => reference_Wire (parent_wire_count + i)
+  end.
+
+Definition circuit_add_translate_binding parent_wire_count input_references b :=
+  let translate_reference := circuit_add_translate_reference parent_wire_count input_references in
+  match b with
+  | binding_Immidiate r => binding_Immidiate (translate_reference r)
+  | binding_Not r => binding_Not (translate_reference r)
+  | binding_And r1 r2 => binding_And (translate_reference r1) (translate_reference r2)
+  | binding_Or r1 r2 => binding_Or (translate_reference r1) (translate_reference r2)
+  | binding_If r1 r2 r3 => binding_If (translate_reference r1) (translate_reference r2) (translate_reference r3)
+  end.
+
+Definition circuit_add c_parent c_child input_references := {|
+  circuit_input_count := circuit_input_count c_parent;
+  circuit_wires :=
+    circuit_wires c_parent ++
+    List.map
+      (circuit_add_translate_binding (length (circuit_wires c_parent)) input_references)
+      (circuit_wires c_child);
+  circuit_outputs := circuit_outputs c_parent;
+|}.
+
+Register circuit_add as vcpu.circuit.add.
+
+Definition circuit_empty input_count := {|
+  circuit_input_count := input_count;
+  circuit_wires := [];
+  circuit_outputs := [];
+|}.
+
+Register circuit_empty as vcpu.circuit.empty.
+
+Definition circuit_id input_count := {|
+  circuit_input_count := input_count;
+  circuit_wires := list_init (fun i => binding_Immidiate (reference_Input i)) input_count;
+  circuit_outputs := List.seq 0 input_count;
+|}.
+
+Register circuit_id as vcpu.circuit.id.
+
+Definition circuit_zero := {|
+  circuit_input_count := 0;
+  circuit_wires := [binding_Immidiate reference_Zero];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_zero as vcpu.circuit.zero.
+
+Definition circuit_one := {|
+  circuit_input_count := 0;
+  circuit_wires := [binding_Immidiate reference_One];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_one as vcpu.circuit.one.
+
+Definition circuit_switch data_size := {|
+  circuit_input_count := 1 + 2 * data_size;
+  circuit_wires :=
+    list_init (fun i =>
+      binding_If (reference_Input 0) (reference_Input (1 + i)) (reference_Input (1 + data_size + i))
+    ) data_size;
+  circuit_outputs := List.seq 0 data_size;
+|}.
+
+Register circuit_switch as vcpu.circuit.switch.
+
+(*Inductive binding :=
   | binding_Zero
   | binding_Input (i : nat)
   | binding_Nand (i j : nat).
@@ -590,3 +775,4 @@ Proof.
   }
   rewrite <- A2 at 11. rewrite <- A1. apply list_select_app_2_seq.
 Qed.
+*)
