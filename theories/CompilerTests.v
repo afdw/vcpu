@@ -109,12 +109,6 @@ Definition test6 := @adder 64.
 
 Compile test6.
 
-Definition add_one' (a b c_in : bool) : bool * bool :=
-  let t := a ^^ b in
-  (t ^^ c_in, c_in && t || a && b).
-
-Require Import Lia.
-
 Definition add4' a1 a2 a3 a4 b1 b2 b3 b4 :=
   let 'c := false in
   let '(r1, c) := add_one a1 b1 c in
@@ -134,3 +128,33 @@ Definition add4 a1 a2 a3 a4 b1 b2 b3 b4 :=
   [r1; r2; r3; r4].
 
 Eval cbv beta delta iota in add4.
+
+Definition add_one' (a b c_in : bool) : bool * bool :=
+  let t := a ^^ b in
+  (t ^^ c_in, c_in && t || a && b).
+
+Unset Program Cases.
+
+#[program] Definition test7 (bv : bitvec 3) : bitvec 2 := {|
+  vector_list :=
+    match vector_list bv with
+    | [a; b; c] => let '(r, c') := add_one' a b c in [r; c']
+    | _ => [] end;
+|}.
+Next Obligation.
+  intros bv. specialize (vector_wf bv) as H. destruct (vector_list bv) as [ | b l'].
+  - simpl in H. congruence.
+  - destruct l' as [ | b' l''].
+    + simpl in H. congruence.
+    + simpl in H. destruct l'' as [ | b'' l'''].
+      * simpl in H. congruence.
+      * simpl in H. destruct l''' as [ | b''' l''''].
+        -- auto.
+        -- simpl in H. congruence.
+Qed.
+
+Set Program Cases.
+
+Compile test7.
+Print test7_circuit.
+Compute test7_circuit.

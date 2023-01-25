@@ -22,6 +22,7 @@ Inductive binding :=
   | binding_Not (r : reference)
   | binding_And (r1 r2 : reference)
   | binding_Or (r1 r2 : reference)
+  | binding_Xor (r1 r2 : reference)
   | binding_If (r1 r2 r3 : reference).
 
 Register binding as vcpu.binding.type.
@@ -29,6 +30,7 @@ Register binding_Immidiate as vcpu.binding.Immidiate.
 Register binding_Not as vcpu.binding.Not.
 Register binding_And as vcpu.binding.And.
 Register binding_Or as vcpu.binding.Or.
+Register binding_Xor as vcpu.binding.Xor.
 Register binding_If as vcpu.binding.If.
 
 Record circuit := {
@@ -59,6 +61,9 @@ Definition binding_wf input_count wire_count b :=
     reference_wf input_count wire_count r1 /\
     reference_wf input_count wire_count r2
   | binding_Or r1 r2 =>
+    reference_wf input_count wire_count r1 /\
+    reference_wf input_count wire_count r2
+  | binding_Xor r1 r2 =>
     reference_wf input_count wire_count r1 /\
     reference_wf input_count wire_count r2
   | binding_If r1 r2 r3 =>
@@ -92,6 +97,8 @@ Definition binding_compute inputs intermediates b :=
     reference_compute inputs intermediates r1 && reference_compute inputs intermediates r2
   | binding_Or r1 r2 =>
     reference_compute inputs intermediates r1 || reference_compute inputs intermediates r2
+  | binding_Xor r1 r2 =>
+    reference_compute inputs intermediates r1 ^^ reference_compute inputs intermediates r2
   | binding_If r1 r2 r3 =>
     if reference_compute inputs intermediates r1
     then reference_compute inputs intermediates r3
@@ -132,6 +139,7 @@ Definition circuit_add_translate_binding parent_wire_count input_references b :=
   | binding_Not r => binding_Not (translate_reference r)
   | binding_And r1 r2 => binding_And (translate_reference r1) (translate_reference r2)
   | binding_Or r1 r2 => binding_Or (translate_reference r1) (translate_reference r2)
+  | binding_Xor r1 r2 => binding_Xor (translate_reference r1) (translate_reference r2)
   | binding_If r1 r2 r3 => binding_If (translate_reference r1) (translate_reference r2) (translate_reference r3)
   end.
 
@@ -178,6 +186,38 @@ Definition circuit_one := {|
 |}.
 
 Register circuit_one as vcpu.circuit.one.
+
+Definition circuit_not := {|
+  circuit_input_count := 1;
+  circuit_wires := [binding_Not (reference_Input 0)];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_not as vcpu.circuit.not.
+
+Definition circuit_and := {|
+  circuit_input_count := 2;
+  circuit_wires := [binding_And (reference_Input 0) (reference_Input 1)];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_and as vcpu.circuit.and.
+
+Definition circuit_or := {|
+  circuit_input_count := 2;
+  circuit_wires := [binding_Or (reference_Input 0) (reference_Input 1)];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_or as vcpu.circuit.or.
+
+Definition circuit_xor := {|
+  circuit_input_count := 2;
+  circuit_wires := [binding_Xor (reference_Input 0) (reference_Input 1)];
+  circuit_outputs := [0];
+|}.
+
+Register circuit_xor as vcpu.circuit.xor.
 
 Definition circuit_switch data_size := {|
   circuit_input_count := 1 + 2 * data_size;
