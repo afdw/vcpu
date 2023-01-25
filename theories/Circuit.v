@@ -230,6 +230,51 @@ Definition circuit_switch data_size := {|
 
 Register circuit_switch as vcpu.circuit.switch.
 
+Definition circuit_simplify_translate_reference mapping r :=
+  match r with
+  | reference_Zero => reference_Zero
+  | reference_One => reference_One
+  | reference_Input i => reference_Input i
+  | reference_Wire i => reference_Wire (nat_list_assoc i mapping 0)
+  end.
+
+Definition circuit_simplify_translate_binding mapping b :=
+  let translate_reference := circuit_simplify_translate_reference mapping in
+  match b with
+  | binding_Immidiate r => binding_Immidiate (translate_reference r)
+  | binding_Not r => binding_Not (translate_reference r)
+  | binding_And r1 r2 => binding_And (translate_reference r1) (translate_reference r2)
+  | binding_Or r1 r2 => binding_Or (translate_reference r1) (translate_reference r2)
+  | binding_Xor r1 r2 => binding_Xor (translate_reference r1) (translate_reference r2)
+  | binding_If r1 r2 r3 => binding_If (translate_reference r1) (translate_reference r2) (translate_reference r3)
+  end.
+
+Definition circuit_simplify c :=
+  let '(_, wires, mapping) :=
+    List.fold_left (fun '(i, wires, mapping) b =>
+      match b with
+      | binding_Immidiate (reference_Wire j) =>
+        (
+          S i,
+          wires,
+          mapping ++ [(i, nat_list_assoc j mapping 0)]
+        )
+      | _ =>
+        (
+          S i,
+          wires ++ [circuit_simplify_translate_binding mapping b],
+          mapping ++ [(i, length wires)]
+        )
+      end
+    ) (circuit_wires c) (0, [], []) in
+  {|
+    circuit_input_count := circuit_input_count c;
+    circuit_wires := wires;
+    circuit_outputs := List.map (fun i => nat_list_assoc i mapping 0) (circuit_outputs c);
+  |}.
+
+Register circuit_simplify as vcpu.circuit.simplify.
+
 (*Inductive binding :=
   | binding_Zero
   | binding_Input (i : nat)

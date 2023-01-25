@@ -790,13 +790,15 @@ let compile (id : Names.Id.t) (native : bool) : unit =
       let (c_body', body_output_wires) = circuit_add c_body c_applied_body input_references in
       let c_body'' = circuit_set_outputs c_body' body_output_wires in
       Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_body''.circuit_wires |> List.length));
+      let result_body = c_body''.circuit_constr in
+      (* let result_body = EConstr.mkApp (get_ref env "vcpu.circuit.simplify", [|result_body|]) in *)
       let info = Declare.Info.make () in
       let cinfo =
         Declare.CInfo.make
         ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
         ~typ:(Some (get_ref env "vcpu.circuit.type"))
         () in
-      Declare.declare_definition ~info ~cinfo ~opaque:false ~body:c_body''.circuit_constr sigma |> ignore
+      Declare.declare_definition ~info ~cinfo ~opaque:false ~body:result_body sigma |> ignore
     )
     | _ -> CErrors.user_err Pp.(str "Not a product:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
   )

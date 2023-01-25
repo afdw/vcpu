@@ -429,3 +429,15 @@ Fixpoint list_fold_right2 {A B C} (f : B -> C -> A -> A) (x : A) (l1 : list B) (
   | y :: l1', z :: l2' => f y z (list_fold_right2 f x l1' l2')
   | _, _ => x
   end.
+
+Fixpoint nat_list_assoc {A} n l (default : A) :=
+  match l with
+  | [] => default
+  | (m, x) :: l' => if Nat.eqb m n then x else nat_list_assoc n l' default
+  end.
+
+Fixpoint nat_list_mem n l :=
+  match l with
+  | [] => false
+  | m :: l' => Nat.eqb m n || nat_list_mem n l'
+  end.
