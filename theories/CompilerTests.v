@@ -105,7 +105,7 @@ Compute circuit_compute test5_circuit [true; false; true; false; false; false; f
   true; true; false; false; false; false; false; false].
   (* [false; false; false; true; false; false; false; false] *)
 
-Definition test6 := @adder 64.
+Definition test6 := @adder 4.
 
 Compile test6.
 
@@ -158,3 +158,44 @@ Set Program Cases.
 Compile test7.
 Print test7_circuit.
 Compute test7_circuit.
+
+#[program] Definition add {n} (bv1 bv2 : bitvec n) : bitvec n := {|
+  vector_list := list_add_aux (vector_list bv1) (vector_list bv2) [] false;
+|}.
+Next Obligation.
+Admitted.
+
+#[program] Definition shift_left_one {n} (bv : bitvec n) : bitvec n := {|
+  vector_list := false :: list_select (vector_list bv) (List.seq 0 (pred n)) false;
+|}.
+Next Obligation.
+Admitted.
+
+Definition test8 := @shift_left_one 8.
+Compile test8.
+Compute test8_circuit.
+
+#[program] Definition zero {n} : bitvec n := {|
+  vector_list := list_init (fun _ => false) n;
+|}.
+Next Obligation.
+Admitted.
+
+Definition mul {n} (bv1 bv2 : bitvec n) : bitvec n :=
+  fst (
+    List.fold_left (fun t (b : bool) =>
+      let '(bv_r, bv2') := t in
+      if b then (bv2', shift_left_one bv2') else (bv_r, shift_left_one bv2')
+    ) (vector_list bv1) (zero, bv2)
+  ).
+
+#[program] Definition muler {n} (bv : bitvec (2 * n)) : bitvec n :=
+  let bv1 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq 0 n) false |} in
+  let bv2 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq n n) false |} in
+  mul bv1 bv2.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
+
+Definition test9 := @muler 32.

@@ -422,6 +422,16 @@ let rec size_of_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t
       )
   | _ -> CErrors.user_err Pp.(str "Unknown type:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
 
+let red_flags () =
+  ["core.bool.negb"; "core.bool.andb"; "core.bool.orb"; "core.bool.xorb"]
+  |> List.fold_left (fun red_flags s ->
+    let constant =
+      match Coqlib.lib_ref s with
+      | ConstRef t -> t
+      | _ -> assert false in
+    CClosure.RedFlags.red_sub red_flags (CClosure.RedFlags.fCONST constant)
+  ) CClosure.allnolet
+
 exception Reduction_blocked of EConstr.t
 
 let rec verify_reduction_not_blocked (sigma : Evd.evar_map) (evars : EConstr.t list) (t : EConstr.t) : unit =
@@ -436,20 +446,8 @@ let rec verify_reduction_not_blocked (sigma : Evd.evar_map) (evars : EConstr.t l
   | _ -> ()
 
 let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
-    (needs_reduction : bool) : (EConstr.t * int list) list * circuit =
+    : (EConstr.t * int list) list * circuit =
   (* Feedback.msg_notice Pp.(str "convert" ++ spc () ++ Printer.pr_econstr_env env sigma source); *)
-
-  (* Reduce the source *)
-  let red_flags =
-    ["core.bool.negb"; "core.bool.andb"; "core.bool.orb"; "core.bool.xorb"]
-    |> List.fold_left (fun red_flags s ->
-      let constant =
-        match Coqlib.lib_ref s with
-        | ConstRef t -> t
-        | _ -> assert false in
-      CClosure.RedFlags.red_sub red_flags (CClosure.RedFlags.fCONST constant)
-    ) CClosure.allnolet in
-  let source = if needs_reduction then Cbv.cbv_norm (Cbv.create_cbv_infos red_flags env sigma) source else source in
 
   (* Replace vector of let in with let in of vector and vector of match with match of vector *)
   let source =
@@ -488,9 +486,9 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
       (evar, evar_inputs_wires |> List.map (fun i -> Reference_input i))
     ) in
 
-  let convert_child sigma c_source child child_needs_reduction child_evar_mapping =
+  let convert_child sigma c_source child child_evar_mapping =
     let (child_input_mapping, c_child) =
-      convert env sigma (child_evar_mapping |> List.map fst) child child_needs_reduction in
+      convert env sigma (child_evar_mapping |> List.map fst) child in
     let child_input_references = List.init c_child.circuit_input_count (fun i ->
       let (evar, child_input_wires) =
         child_input_mapping |> List.find (fun (_, child_input_wires) -> child_input_wires |> List.mem i) in
@@ -514,7 +512,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Not *)
     | App (f, [|arg|]) when EConstr.eq_constr sigma f (get_ref env "core.bool.negb") ->
-      let (c_source', arg_output_wires) = convert_child sigma c_source arg false input_evar_mapping in
+      let (c_source', arg_output_wires) = convert_child sigma c_source arg input_evar_mapping in
       let (c_source'', not_output_wires) =
         circuit_add c_source' circuit_not (arg_output_wires |> List.map (fun i -> Reference_wire i)) in
       let c_source''' = circuit_set_outputs c_source'' not_output_wires in
@@ -522,8 +520,8 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* And *)
     | App (f, [|arg_1; arg_2|]) when EConstr.eq_constr sigma f (get_ref env "core.bool.andb") ->
-      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 false input_evar_mapping in
-      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 false input_evar_mapping in
+      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 input_evar_mapping in
+      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 input_evar_mapping in
       let (c_source''', and_output_wires) =
         circuit_add c_source'' circuit_and ((arg_1_output_wires @ arg_2_output_wires) |> List.map (fun i -> Reference_wire i)) in
       let c_source'''' = circuit_set_outputs c_source''' and_output_wires in
@@ -531,8 +529,8 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Or *)
     | App (f, [|arg_1; arg_2|]) when EConstr.eq_constr sigma f (get_ref env "core.bool.orb") ->
-      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 false input_evar_mapping in
-      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 false input_evar_mapping in
+      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 input_evar_mapping in
+      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 input_evar_mapping in
       let (c_source''', or_output_wires) =
         circuit_add c_source'' circuit_or ((arg_1_output_wires @ arg_2_output_wires) |> List.map (fun i -> Reference_wire i)) in
       let c_source'''' = circuit_set_outputs c_source''' or_output_wires in
@@ -540,8 +538,8 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Xor *)
     | App (f, [|arg_1; arg_2|]) when EConstr.eq_constr sigma f (get_ref env "core.bool.xorb") ->
-      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 false input_evar_mapping in
-      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 false input_evar_mapping in
+      let (c_source', arg_1_output_wires) = convert_child sigma c_source arg_1 input_evar_mapping in
+      let (c_source'', arg_2_output_wires) = convert_child sigma c_source' arg_2 input_evar_mapping in
       let (c_source''', xor_output_wires) =
         circuit_add c_source'' circuit_xor ((arg_1_output_wires @ arg_2_output_wires) |> List.map (fun i -> Reference_wire i)) in
       let c_source'''' = circuit_set_outputs c_source''' xor_output_wires in
@@ -549,10 +547,10 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Let in *)
     | LetIn (_, value, value_type, context) ->
-      let (c_source', value_output_wires) = convert_child sigma c_source value false input_evar_mapping in
+      let (c_source', value_output_wires) = convert_child sigma c_source value input_evar_mapping in
       let (sigma, value_evar) = Evarutil.new_evar env sigma value_type in
       let (c_source'', context_output_wires) =
-        convert_child sigma c_source' (context |> EConstr.Vars.subst1 value_evar) false
+        convert_child sigma c_source' (context |> EConstr.Vars.subst1 value_evar)
         ((value_evar, value_output_wires |> List.map (fun i -> Reference_wire i)) :: input_evar_mapping) in
       let c_source''' = circuit_set_outputs c_source'' context_output_wires in
       (sigma, c_source''')
@@ -560,9 +558,9 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
     (* Match bool *)
     | Case (ci, _, _, (_, brs_type), _, scrutinee, brs) when
         Names.GlobRef.equal (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "core.bool.type") ->
-      let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee false input_evar_mapping in
-      let (c_source'', br_false_output_wires) = convert_child sigma c_source' (brs.(1) |> snd) false input_evar_mapping in
-      let (c_source''', br_true_output_wires) = convert_child sigma c_source'' (brs.(0) |> snd) false input_evar_mapping in
+      let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee input_evar_mapping in
+      let (c_source'', br_false_output_wires) = convert_child sigma c_source' (brs.(1) |> snd) input_evar_mapping in
+      let (c_source''', br_true_output_wires) = convert_child sigma c_source'' (brs.(0) |> snd) input_evar_mapping in
       let c_switch = circuit_switch (size_of_type env sigma brs_type) in
       let (c_source'''', switch_output_wires) = circuit_add c_source''' c_switch
         (scutinee_output_wires @ br_false_output_wires @ br_true_output_wires |> List.map (fun i -> Reference_wire i)) in
@@ -573,7 +571,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
     | Case (ci, _, params, (_, brs_type), _, scrutinee, brs) ->
       let constructor_arg_types = constructor_arg_types_of_inductive env sigma ci.ci_ind (params |> Array.to_list) in
       let constructor_count = constructor_arg_types |> List.length in
-      let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee false input_evar_mapping in
+      let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee input_evar_mapping in
       let (sigma, c_source'', brs_output_wires) =
         List.fold_left2
         (fun (sigma, c_source', brs_output_wires) arg_types br ->
@@ -595,7 +593,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
             ) (sigma, constructor_count, [], input_evar_mapping) in
           let (c_source'', br_output_wires) =
             convert_child sigma c_source'
-            (br |> EConstr.Vars.substl (arg_evars |> List.rev)) false
+            (br |> EConstr.Vars.substl (arg_evars |> List.rev))
             br_evar_mapping in
           (sigma, c_source'', brs_output_wires @ [br_output_wires])
         )
@@ -635,7 +633,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
       verify_reduction_not_blocked sigma evars a3;
       let l = of_list_constr env sigma a3 in
       let (c_source', elements_output_wires) = l |> List.fold_left (fun (c_source', children_output_wires) element ->
-        let (c_source'', element_output_wires) = convert_child sigma c_source' element false input_evar_mapping in
+        let (c_source'', element_output_wires) = convert_child sigma c_source' element input_evar_mapping in
         (c_source'', children_output_wires @ element_output_wires)
       ) (c_source, []) in
       let c_source'' = circuit_set_outputs c_source' elements_output_wires in
@@ -670,7 +668,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
         let c_constructor_index = circuit_const (List.init constructor_count (fun i -> i = contructor_index)) in
         let (c_source', contructor_index_output_wires) = circuit_add c_source c_constructor_index [] in
         let (c_source'', args_output_wires) = args |> Seq.fold_left (fun (c_source', args_output_wires) arg ->
-          let (c_source'', arg_output_wires) = convert_child sigma c_source' arg false input_evar_mapping in
+          let (c_source'', arg_output_wires) = convert_child sigma c_source' arg input_evar_mapping in
           (c_source'', args_output_wires @ arg_output_wires)
         ) (c_source', []) in
         let c_padding = circuit_const (List.init padding_size (fun _ -> false)) in
@@ -699,8 +697,9 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
         )
       ) in
     let substituted = Termops.replace_term sigma reduction_blocking_evar (to_vector env typ vector_evars) source in
+    let reduced_substituted = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags ()) env sigma) substituted in
     let (c_source', substituted_output_wires) =
-      convert_child sigma c_source substituted true
+      convert_child sigma c_source reduced_substituted
       (input_evar_mapping @ vector_evar_mapping) in
     let c_source'' = circuit_set_outputs c_source' substituted_output_wires in
     (sigma, c_source'') in
@@ -719,30 +718,44 @@ let compile (id : Names.Id.t) (native : bool) : unit =
   match Global.body_of_constant_body Library.indirect_accessor cb with
   | Some (body, _, _) -> (
     let body = EConstr.of_constr body in
-    let typ = Retyping.get_type_of env sigma body in
-    match EConstr.kind sigma typ with
-    | Prod (_, typ_in, typ_out) -> (
-      let typ_in_size = size_of_type env sigma typ_in in
-      let (sigma, evar) = Evarutil.new_evar env sigma typ_in in
-      let applied_body = EConstr.mkApp (body, [|evar|]) in
-      Feedback.msg_notice (Pp.str "Start");
-      let (input_mapping, c_applied_body) = convert env sigma [evar] applied_body true in
-      let c_body = circuit_empty typ_in_size in
-      let input_references = if input_mapping = [] then [] else List.init typ_in_size (fun i -> Reference_input i) in
-      let (c_body', body_output_wires) = circuit_add c_body c_applied_body input_references in
-      let c_body'' = circuit_set_outputs c_body' body_output_wires in
-      Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_body''.circuit_wires |> List.length));
-      let result_body = c_body''.circuit_constr in
-      (* let result_body = EConstr.mkApp (get_ref env "vcpu.circuit.simplify", [|result_body|]) in *)
-      let info = Declare.Info.make () in
-      let cinfo =
-        Declare.CInfo.make
-        ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
-        ~typ:(Some (get_ref env "vcpu.circuit.type"))
-        () in
-      Declare.declare_definition ~info ~cinfo ~opaque:false ~body:result_body sigma |> ignore
-    )
-    | _ -> CErrors.user_err Pp.(str "Not a product:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
+    let reduced_body = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags ()) env sigma) body in
+    let (params, source) = reduced_body |> EConstr.decompose_lam sigma in
+    let param_types = params |> List.map snd in
+    let (sigma, params_size, param_evars, source_evar_mapping) =
+      param_types |> List.fold_left (fun (sigma, offset, param_evars, source_evar_mapping) arg_typ ->
+        let (sigma, arg_evar) = Evarutil.new_evar env sigma arg_typ in
+        let param_size = arg_typ |> size_of_type env sigma in
+        (
+          sigma,
+          offset + param_size,
+          param_evars @ [arg_evar],
+          source_evar_mapping @ [(
+            arg_evar,
+            List.init param_size (fun i -> offset + i) |> List.map (fun i -> Reference_input i)
+          )]
+        )
+      ) (sigma, 0, [], []) in
+    Feedback.msg_notice (Pp.str "Start");
+    let (source_input_mapping, c_source) =
+      convert env sigma param_evars (source |> EConstr.Vars.substl (param_evars |> List.rev)) in
+    let c_result = circuit_empty params_size in
+    let source_input_references = List.init c_source.circuit_input_count (fun i ->
+      let (evar, source_input_wires) =
+        source_input_mapping |> List.find (fun (_, source_input_wires) -> source_input_wires |> List.mem i) in
+      List.nth (source_evar_mapping |> constr_list_assoc sigma evar) (source_input_wires |> list_index_of i)
+    ) in
+    let (c_result', source_output_wires) = circuit_add c_result c_source source_input_references in
+    let c_result'' = circuit_set_outputs c_result' source_output_wires in
+    Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_result''.circuit_wires |> List.length));
+    let result_body = c_result''.circuit_constr in
+    (* let result_body = EConstr.mkApp (get_ref env "vcpu.circuit.simplify", [|result_body|]) in *)
+    let info = Declare.Info.make () in
+    let cinfo =
+      Declare.CInfo.make
+      ~name:((id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
+      ~typ:(Some (get_ref env "vcpu.circuit.type"))
+      () in
+    Declare.declare_definition ~info ~cinfo ~opaque:false ~body:result_body sigma |> ignore
   )
   | None ->
     CErrors.user_err Pp.(str "Constant" ++ spc () ++ Names.Constant.print constant_name ++ str " has no value.")
