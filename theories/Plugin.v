@@ -17,6 +17,12 @@ Fixpoint bitlist_to_nat (bl : list bool) : nat :=
 
 Register bitlist_to_nat as vcpu.bitlist_to_nat.
 
+Fixpoint bitlist_of_nat (n m : nat) : list bool :=
+  match n with
+  | 0 => []
+  | S n' => (Nat.eqb (Nat.modulo m 2) 1) :: bitlist_of_nat n' (Nat.div m 2)
+  end.
+
 Lemma prove_le :
   forall n m,
   PeanoNat.Nat.leb n m = true ->

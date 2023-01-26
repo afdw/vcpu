@@ -5,12 +5,12 @@ DECLARE PLUGIN "vcpu-plugin.plugin"
 }
 
 VERNAC COMMAND EXTEND MyDefine CLASSIFIED AS SIDEFF
-| [ "Compile" ident(id) ] ->
+| [ "Compile" ident(input_id) ] ->
   {
-    Compiler.compile id false
+    Compiler.compile input_id [] None
   }
-| [ "NativeCompile" ident(id) ] ->
+| [ "Compile" ident(input_id) "of" constr_list(param_constr_exprs) "as" ident(output_id) ] ->
   {
-    Compiler.compile id true
+    Compiler.compile input_id param_constr_exprs (Some output_id)
   }
 END

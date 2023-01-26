@@ -185,7 +185,8 @@ Definition mul {n} (bv1 bv2 : bitvec n) : bitvec n :=
   fst (
     List.fold_left (fun t (b : bool) =>
       let '(bv_r, bv2') := t in
-      if b then (bv2', shift_left_one bv2') else (bv_r, shift_left_one bv2')
+      let x := if b then bv2' else zero in
+      (add bv_r x, shift_left_one bv2')
     ) (vector_list bv1) (zero, bv2)
   ).
 
@@ -198,4 +199,20 @@ Admitted.
 Next Obligation.
 Admitted.
 
-Definition test9 := @muler 32.
+Compile zero of 8 as zero_8.
+Compile shift_left_one of 8 as shift_left_one_8.
+Compile add of 8 as add_8.
+Compile mul of 8 as mul_8.
+
+Compute mul
+  {| vector_list := bitlist_of_nat 8 12; vector_wf := eq_refl |}
+  {| vector_list := bitlist_of_nat 8 34; vector_wf := eq_refl |}.
+Compute bitlist_to_nat (circuit_compute add_8_circuit (bitlist_of_nat 8 12 ++ bitlist_of_nat 8 34)).
+Compute bitlist_to_nat (circuit_compute mul_8_circuit (bitlist_of_nat 8 11 ++ bitlist_of_nat 8 17)).
+
+(*Compile zero of 32 as zero_32.
+Compile shift_left_one of 32 as shift_left_one_32.
+Compile add of 32 as add_32.
+Compile mul of 32 as mul_32.
+
+Compute bitlist_to_nat (circuit_compute mul_32_circuit (bitlist_of_nat 32 3543 ++ bitlist_of_nat 32 1231)).*)
