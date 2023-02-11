@@ -1,0 +1,12 @@
+[submodule "payload/linux"]
+	path = payload/linux
+	url = https://github.com/afdw/linux
+	branch = vcpu-tweaks
+[submodule "payload/busybox"]
+	path = payload/busybox
+	url = https://github.com/afdw/busybox
+	branch = vcpu-tweaks
+[submodule "payload/calc"]
+	path = payload/calc
+	url = https://github.com/afdw/calc
+	branch = vcpu-tweaks

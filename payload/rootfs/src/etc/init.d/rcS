@@ -1,0 +1,7 @@
+#!/bin/sh
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+echo "Hello world"
+/bin/sh
+kill -s SIGUSR2 1
