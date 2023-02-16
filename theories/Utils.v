@@ -109,16 +109,16 @@ Proof.
     + specialize (IH H4 i'). simpl in H2. apply IH. lia.
 Qed.
 
-Fixpoint list_forallb {A} f (l : list A) :=
+Fixpoint list_forall_b {A} f (l : list A) :=
   match l with
   | [] => true
-  | x :: l' => f x && list_forallb f l'
+  | x :: l' => f x && list_forall_b f l'
   end.
 
-Lemma list_forallb_reflect :
+Lemma list_forall_b_reflect :
   forall {A} f g (l : list A),
   (forall x, Bool.reflect (f x) (g x)) ->
-  Bool.reflect (list_forall f l) (list_forallb g l).
+  Bool.reflect (list_forall f l) (list_forall_b g l).
 Proof.
   intros A f g l H. induction l as [ | x l' IH].
   - simpl. apply Bool.ReflectT. auto.
@@ -226,18 +226,18 @@ Proof.
   - specialize (IH (S s)). simpl. intuition auto.
 Qed.
 
-Fixpoint list_forallb_i_aux {A} f i (l : list A) :=
+Fixpoint list_forall_b_i_aux {A} f i (l : list A) :=
   match l with
   | [] => true
-  | x :: l' => f i x && list_forallb_i_aux f (S i) l'
+  | x :: l' => f i x && list_forall_b_i_aux f (S i) l'
   end.
 
-Definition list_forallb_i {A} f (l : list A) := list_forallb_i_aux f 0 l.
+Definition list_forall_b_i {A} f (l : list A) := list_forall_b_i_aux f 0 l.
 
-Lemma list_forallb_i_aux_reflect :
+Lemma list_forall_b_i_aux_reflect :
   forall {A} f g i (l : list A),
   (forall j x, Bool.reflect (f j x) (g j x)) ->
-  Bool.reflect (list_forall_i_aux f i l) (list_forallb_i_aux g i l).
+  Bool.reflect (list_forall_i_aux f i l) (list_forall_b_i_aux g i l).
 Proof.
   intros A f g i l H. generalize dependent i. induction l as [ | x l' IH]; intros i.
   - simpl. apply Bool.ReflectT. auto.
@@ -245,12 +245,12 @@ Proof.
     apply Bool.reflect_iff in IH. apply Bool.reflect_iff in H. apply Bool.iff_reflect. intuition auto.
 Qed.
 
-Lemma list_forallb_i_reflect :
+Lemma list_forall_b_i_reflect :
   forall {A} f g (l : list A),
   (forall j x, Bool.reflect (f j x) (g j x)) ->
-  Bool.reflect (list_forall_i f l) (list_forallb_i g l).
+  Bool.reflect (list_forall_i f l) (list_forall_b_i g l).
 Proof.
-  intros A f g l H. apply (list_forallb_i_aux_reflect _ _ _ _ H).
+  intros A f g l H. apply (list_forall_b_i_aux_reflect _ _ _ _ H).
 Qed.
 
 Lemma list_fold_left_ext_precise :

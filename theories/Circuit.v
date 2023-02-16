@@ -224,7 +224,7 @@ Register circuit_set_outputs_wf as vcpu.circuit.set_outputs_wf.
 Definition circuit_set_outputs_with_wf
   c_with_wf outputs
   (H :
-    list_forallb
+    list_forall_b
       (fun i => PeanoNat.Nat.ltb i (length (circuit_wires (circuit_with_wf_circuit c_with_wf))))
       outputs =
     true
@@ -235,7 +235,7 @@ Definition circuit_set_outputs_with_wf
     circuit_set_outputs_wf
       (circuit_with_wf_circuit c_with_wf) outputs
       (circuit_with_wf_circuit_wf c_with_wf)
-      (proj2 (Bool.reflect_iff _ _ (list_forallb_reflect _ _ _ (fun i => PeanoNat.Nat.ltb_spec0 i _))) H);
+      (proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (fun i => PeanoNat.Nat.ltb_spec0 i _))) H);
 |}.
 
 Register circuit_set_outputs_with_wf as vcpu.circuit.set_outputs_with_wf.
@@ -341,7 +341,7 @@ Definition circuit_add_with_wf
   c_parent_with_wf c_child_with_wf input_references
   (H1 : length input_references = circuit_input_count (circuit_with_wf_circuit c_child_with_wf))
   (H2 :
-    list_forallb
+    list_forall_b
       (
         reference_wf_b
           (circuit_input_count (circuit_with_wf_circuit c_parent_with_wf))
@@ -361,7 +361,7 @@ Definition circuit_add_with_wf
       (circuit_with_wf_circuit c_child_with_wf) input_references
       (circuit_with_wf_circuit_wf c_parent_with_wf)
       (circuit_with_wf_circuit_wf c_child_with_wf) H1
-      (proj2 (Bool.reflect_iff _ _ (list_forallb_reflect _ _ _ (reference_wf_b_reflect _ _))) H2);
+      (proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (reference_wf_b_reflect _ _))) H2);
 |}.
 
 Register circuit_add_with_wf as vcpu.circuit.add_with_wf.

@@ -1,6 +1,5 @@
 Require Import Utils.
 Require Import Circuit.
-Require Import NativeCircuit.
 Require Import Vector.
 Require Import Plugin.
 

@@ -43,23 +43,18 @@ let rec of_list_constr (env : Environ.env) (sigma : Evd.evar_map) (t : EConstr.t
     a :: of_list_constr env sigma t'
   | _ -> CErrors.user_err Pp.(str "Not an application of nil or cons:" ++ spc () ++ Printer.pr_econstr_env env sigma t)
 
-let rec to_nat_constr (env : Environ.env) (n : int) : EConstr.t =
+let to_nat_constr (env : Environ.env) (n : int) : EConstr.t =
   assert (n >= 0);
-  if n < 32 then
-    if n = 0
-    then get_ref env "num.nat.O"
-    else EConstr.mkApp (get_ref env "num.nat.S", [|to_nat_constr env (pred n)|])
-  else
-    let rec aux n = if n = 0 then [] else not (n mod 2 = 0) :: aux (n / 2) in
-    EConstr.mkApp (
-      get_ref env "vcpu.bitlist_to_nat",
-      [|
-        n
-        |> aux
-        |> List.map (to_bool_constr env)
-        |> to_list_constr env (get_ref env "core.bool.type");
-      |]
-    )
+  let rec aux n = if n = 0 then [] else not (n mod 2 = 0) :: aux (n / 2) in
+  EConstr.mkApp (
+    get_ref env "vcpu.bitlist_to_nat",
+    [|
+      n
+      |> aux
+      |> List.map (to_bool_constr env)
+      |> to_list_constr env (get_ref env "core.bool.type");
+    |]
+  )
 
 let rec of_nat_constr (env : Environ.env) (sigma : Evd.evar_map) (t : EConstr.t) : int =
   match EConstr.kind sigma t with
@@ -70,28 +65,16 @@ let rec of_nat_constr (env : Environ.env) (sigma : Evd.evar_map) (t : EConstr.t)
 let prove_nat_eq (env : Environ.env) (n : int) : EConstr.t =
   EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "num.nat.type"; to_nat_constr env n|])
 
-let rec prove_nat_le (env : Environ.env) (n : int) (m : int) : EConstr.t =
+let prove_nat_le (env : Environ.env) (n : int) (m : int) : EConstr.t =
   assert (n <= m);
-  if n < 8 && m < 8 then
-    if n = m then
-      EConstr.mkApp (
-        get_ref env "num.nat.le_n",
-        [|to_nat_constr env n|]
-      )
-    else
-      EConstr.mkApp (
-        get_ref env "num.nat.le_S",
-        [|to_nat_constr env n; to_nat_constr env (pred m); prove_nat_le env n (pred m)|]
-      )
-  else
-    EConstr.mkApp (
-      get_ref env "vcpu.prove_le",
-      [|
-        n |> to_nat_constr env;
-        m |> to_nat_constr env;
-        EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
-      |]
-    )
+  EConstr.mkApp (
+    get_ref env "num.nat.prove_le",
+    [|
+      n |> to_nat_constr env;
+      m |> to_nat_constr env;
+      EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
+    |]
+  )
 
 let prove_nat_lt (env : Environ.env) (n : int) (m : int) : EConstr.t =
   assert (n < m);
@@ -124,9 +107,6 @@ let new_evars (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) (n : 
       let (sigma, evar) = Evarutil.new_evar env sigma typ in
       (sigma, evar :: evars)
     ) (sigma, [])
-
-let mk_conj (env : Environ.env) (sigma : Evd.evar_map) (h1 : EConstr.t) (h2 : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "core.and.conj", [|Retyping.get_type_of env sigma h1; Retyping.get_type_of env sigma h2; h1; h2|])
 
 type reference =
   | Reference_zero
@@ -211,42 +191,6 @@ let circuit_outputs_wf (c : circuit) : bool =
 
 let circuit_wf (c : circuit) : bool =
   circuit_wires_wf c && circuit_outputs_wf c
-
-let prove_reference_wf (env : Environ.env) (sigma : Evd.evar_map)
-    (input_count : int) (wire_count : int) (r : reference) : EConstr.t =
-  match r with
-  | Reference_zero -> get_ref env "core.True.I"
-  | Reference_one -> get_ref env "core.True.I"
-  | Reference_input i -> prove_nat_lt env i input_count
-  | Reference_wire i -> prove_nat_lt env i wire_count
-
-let prove_binding_wf (env : Environ.env) (sigma : Evd.evar_map)
-    (input_count : int) (wire_count : int) (b : binding) : EConstr.t =
-  match b with
-  | Binding_immidiate r ->
-    prove_reference_wf env sigma input_count wire_count r
-  | Binding_not r ->
-    prove_reference_wf env sigma input_count wire_count r
-  | Binding_and (r1, r2) ->
-    mk_conj env sigma
-      (prove_reference_wf env sigma input_count wire_count r1)
-      (prove_reference_wf env sigma input_count wire_count r2)
-  | Binding_or (r1, r2) ->
-    mk_conj env sigma
-      (prove_reference_wf env sigma input_count wire_count r1)
-      (prove_reference_wf env sigma input_count wire_count r2)
-  | Binding_xor (r1, r2) ->
-    mk_conj env sigma
-      (prove_reference_wf env sigma input_count wire_count r1)
-      (prove_reference_wf env sigma input_count wire_count r2)
-  | Binding_if (r1, r2, r3) ->
-    mk_conj env sigma
-      (prove_reference_wf env sigma input_count wire_count r1)
-      (
-        mk_conj env sigma
-          (prove_reference_wf env sigma input_count wire_count r2)
-          (prove_reference_wf env sigma input_count wire_count r3)
-      )
 
 let reference_compute (inputs : bool list) (intermediates : bool list) (r : reference) : bool =
   match r with
