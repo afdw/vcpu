@@ -175,8 +175,7 @@ type circuit = {
   circuit_input_count : int;
   circuit_wires : binding list;
   circuit_outputs : int list;
-  circuit_constr : Environ.env -> Evd.evar_map -> EConstr.t;
-  circuit_wf_constr : Environ.env -> Evd.evar_map -> EConstr.t;
+  circuit_with_wf_constr : Environ.env -> Evd.evar_map -> EConstr.t;
 }
 
 let reference_wf (input_count : int) (wire_count : int) (r : reference) : bool =
@@ -288,25 +287,13 @@ let circuit_set_outputs (c : circuit) (outputs : int list) : circuit =
     circuit_input_count = c.circuit_input_count;
     circuit_wires = c.circuit_wires;
     circuit_outputs = outputs;
-    circuit_constr = (fun env sigma ->
+    circuit_with_wf_constr = (fun env sigma ->
       EConstr.mkApp (
-        get_ref env "vcpu.circuit.set_outputs",
+        get_ref env "vcpu.circuit.set_outputs_with_wf",
         [|
-          c.circuit_constr env sigma;
+          c.circuit_with_wf_constr env sigma;
           outputs |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type");
-        |]
-      )
-    );
-    circuit_wf_constr = (fun env sigma ->
-      EConstr.mkApp (
-        get_ref env "vcpu.circuit.set_outputs_wf",
-        [|
-          c.circuit_constr env sigma;
-          outputs |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type");
-          c.circuit_wf_constr env sigma;
-          List.fold_right (fun i t ->
-            mk_conj env sigma (prove_nat_lt env i (c.circuit_wires |> List.length)) t
-          ) outputs (get_ref env "core.True.I");
+          EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
         |]
       )
     );
@@ -340,35 +327,17 @@ let circuit_add (c_parent : circuit) (c_child : circuit) (input_references : ref
           (c_child.circuit_wires |> List.map
             (circuit_add_translate_binding (List.length c_parent.circuit_wires) input_references));
       circuit_outputs = c_parent.circuit_outputs;
-      circuit_constr = (fun env sigma ->
+      circuit_with_wf_constr = (fun env sigma ->
         EConstr.mkApp (
-          get_ref env "vcpu.circuit.add",
+          get_ref env "vcpu.circuit.add_with_wf",
           [|
-            c_parent.circuit_constr env sigma;
-            c_child.circuit_constr env sigma;
+            c_parent.circuit_with_wf_constr env sigma;
+            c_child.circuit_with_wf_constr env sigma;
             input_references
               |> List.map (to_reference_constr env)
               |> to_list_constr env (get_ref env "vcpu.reference.type");
-          |]
-        )
-      );
-      circuit_wf_constr = (fun env sigma ->
-        EConstr.mkApp (
-          get_ref env "vcpu.circuit.add_wf",
-          [|
-            c_parent.circuit_constr env sigma;
-            c_child.circuit_constr env sigma;
-            input_references
-              |> List.map (to_reference_constr env)
-              |> to_list_constr env (get_ref env "vcpu.reference.type");
-            c_parent.circuit_wf_constr env sigma;
-            c_child.circuit_wf_constr env sigma;
             prove_nat_eq env (input_references |> List.length);
-            List.fold_right (fun r t ->
-              mk_conj env sigma
-                (prove_reference_wf env sigma c_parent.circuit_input_count (List.length c_parent.circuit_wires) r)
-                t
-            ) input_references (get_ref env "core.True.I");
+            EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
           |]
         )
       );
@@ -381,11 +350,8 @@ let circuit_empty (input_count : int) : circuit =
     circuit_input_count = input_count;
     circuit_wires = [];
     circuit_outputs = [];
-    circuit_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.empty", [|to_nat_constr env input_count|])
-    );
-    circuit_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.empty_wf", [|to_nat_constr env input_count|])
+    circuit_with_wf_constr = (fun env sigma ->
+      EConstr.mkApp (get_ref env "vcpu.circuit.empty_with_wf", [|to_nat_constr env input_count|])
     );
   }
 
@@ -394,11 +360,8 @@ let circuit_id (input_count : int) : circuit =
     circuit_input_count = input_count;
     circuit_wires = List.init input_count (fun i -> Binding_immidiate (Reference_input i));
     circuit_outputs = List.init input_count (fun i -> i);
-    circuit_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.id", [|to_nat_constr env input_count|])
-    );
-    circuit_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.id_wf", [|to_nat_constr env input_count|])
+    circuit_with_wf_constr = (fun env sigma ->
+      EConstr.mkApp (get_ref env "vcpu.circuit.id_with_wf", [|to_nat_constr env input_count|])
     );
   }
 
@@ -407,8 +370,7 @@ let circuit_zero : circuit =
     circuit_input_count = 0;
     circuit_wires = [Binding_immidiate Reference_zero];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.zero");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.zero_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.zero_with_wf");
   }
 
 let circuit_one : circuit =
@@ -416,8 +378,7 @@ let circuit_one : circuit =
     circuit_input_count = 0;
     circuit_wires = [Binding_immidiate Reference_one];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.one");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.one_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.one_with_wf");
   }
 
 let circuit_not : circuit =
@@ -425,8 +386,7 @@ let circuit_not : circuit =
     circuit_input_count = 1;
     circuit_wires = [Binding_not (Reference_input 0)];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.not");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.not_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.not_with_wf");
   }
 
 let circuit_and : circuit =
@@ -434,8 +394,7 @@ let circuit_and : circuit =
     circuit_input_count = 2;
     circuit_wires = [Binding_and (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.and");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.and_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.and_with_wf");
   }
 
 let circuit_or : circuit =
@@ -443,8 +402,7 @@ let circuit_or : circuit =
     circuit_input_count = 2;
     circuit_wires = [Binding_or (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.or");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.or_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.or_with_wf");
   }
 
 let circuit_xor : circuit =
@@ -452,8 +410,7 @@ let circuit_xor : circuit =
     circuit_input_count = 2;
     circuit_wires = [Binding_xor (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
-    circuit_constr = (fun env sigma -> get_ref env "vcpu.circuit.xor");
-    circuit_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.xor_wf");
+    circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.xor_with_wf");
   }
 
 let circuit_switch (data_size : int) : circuit =
@@ -464,11 +421,8 @@ let circuit_switch (data_size : int) : circuit =
         Binding_if (Reference_input 0, Reference_input (1 + i), Reference_input (1 + data_size + i))
       );
     circuit_outputs = List.init data_size (fun i -> i);
-    circuit_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.switch", [|to_nat_constr env data_size|])
-    );
-    circuit_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.switch_wf", [|to_nat_constr env data_size|])
+    circuit_with_wf_constr = (fun env sigma ->
+      EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf", [|to_nat_constr env data_size|])
     );
   }
 
@@ -884,8 +838,21 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
   let (c_result', source_output_wires) = circuit_add c_result c_source source_input_references in
   let c_result'' = circuit_set_outputs c_result' source_output_wires in
   Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_result''.circuit_wires |> List.length));
-  let result_circuit_constr = c_result''.circuit_constr env sigma in
+  let result_circuit_with_wf_constr = c_result''.circuit_with_wf_constr env sigma in
   Feedback.msg_notice (Pp.str "Circuit constr");
+  let circuit_with_wf_constant =
+    Declare.declare_definition
+      ~info:(Declare.Info.make ())
+      ~cinfo:(
+        Declare.CInfo.make
+        ~name:(((output_id |> Option.default input_id) |> Names.Id.to_string) ^ "_circuit_with_wf" |> Names.Id.of_string)
+        ~typ:(Some (get_ref env "vcpu.circuit_with_wf.type"))
+        ()
+      )
+      ~opaque:false
+      ~body:result_circuit_with_wf_constr
+      sigma
+    |> dest_const_ref in
   let circuit_constant =
     Declare.declare_definition
       ~info:(Declare.Info.make ())
@@ -895,10 +862,10 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
         ~typ:(Some (get_ref env "vcpu.circuit.type"))
         ()
       )
-      ~opaque:false ~body:result_circuit_constr sigma
+      ~opaque:false
+      ~body:(EConstr.mkApp (get_ref env "vcpu.circuit_with_wf.circuit", [|EConstr.mkConst circuit_with_wf_constant|]))
+      sigma
     |> dest_const_ref in
-  let result_circuit_wf_constr = c_result''.circuit_wf_constr env sigma in
-  Feedback.msg_notice (Pp.str "Circuit wf constr");
   let circuit_wf_constant =
     Declare.declare_definition
       ~info:(Declare.Info.make ())
@@ -908,11 +875,20 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
         ~typ:(Some (EConstr.mkApp (get_ref env "vcpu.circuit.wf", [|EConstr.mkConst circuit_constant|])))
         ()
       )
-      ~opaque:false ~body:result_circuit_wf_constr sigma
+      ~opaque:false
+      ~body:(EConstr.mkApp (get_ref env "vcpu.circuit_with_wf.circuit_wf", [|EConstr.mkConst circuit_with_wf_constant|]))
+      sigma
     |> dest_const_ref in
   let c_output = {
     c_result'' with
-    circuit_constr = (fun env sigma -> EConstr.mkConst circuit_constant);
-    circuit_wf_constr = (fun env sigma -> EConstr.mkConst circuit_wf_constant);
+    circuit_with_wf_constr = (fun env sigma ->
+      EConstr.mkApp (
+        get_ref env "vcpu.circuit_with_wf.constructor",
+        [|
+          EConstr.mkConst circuit_constant;
+          EConstr.mkConst circuit_wf_constant;
+        |]
+      )
+    );
   } in
   compiled := !compiled @ [((input_constant, params), c_output)]

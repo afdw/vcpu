@@ -43,6 +43,14 @@ Qed.
 
 Register prove_le as vcpu.prove_le.
 
+Lemma prove_le_fast :
+  forall n m,
+  n <= m.
+Proof.
+Admitted.
+
+Register prove_le_fast as vcpu.prove_le_fast.
+
 Register int as int.
 
 Declare ML Module "vcpu_plugin:vcpu-plugin.plugin".

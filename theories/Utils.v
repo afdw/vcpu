@@ -25,6 +25,25 @@ Proof.
   auto.
 Qed.
 
+Lemma true_reflect : Bool.reflect True true.
+Proof.
+  apply Bool.ReflectT. auto.
+Qed.
+
+Lemma false_reflect : Bool.reflect False false.
+Proof.
+  apply Bool.ReflectF. auto.
+Qed.
+
+Lemma andb_reflect :
+  forall A B x y,
+  Bool.reflect A x ->
+  Bool.reflect B y ->
+  Bool.reflect (A /\ B) (x && y).
+Proof.
+  intros A B x y H1 H2. destruct H1, H2; constructor; intuition auto.
+Qed.
+
 Fixpoint list_forall {A} f (l : list A) :=
   match l with
   | [] => True
@@ -88,6 +107,23 @@ Proof.
   - destruct H1 as (H3 & H4). destruct i as [ | i'].
     + auto.
     + specialize (IH H4 i'). simpl in H2. apply IH. lia.
+Qed.
+
+Fixpoint list_forallb {A} f (l : list A) :=
+  match l with
+  | [] => true
+  | x :: l' => f x && list_forallb f l'
+  end.
+
+Lemma list_forallb_reflect :
+  forall {A} f g (l : list A),
+  (forall x, Bool.reflect (f x) (g x)) ->
+  Bool.reflect (list_forall f l) (list_forallb g l).
+Proof.
+  intros A f g l H. induction l as [ | x l' IH].
+  - simpl. apply Bool.ReflectT. auto.
+  - simpl. specialize (H x).
+    apply Bool.reflect_iff in IH. apply Bool.reflect_iff in H. apply Bool.iff_reflect. intuition auto.
 Qed.
 
 Fixpoint list_forall_i_aux {A} f i (l : list A) :=

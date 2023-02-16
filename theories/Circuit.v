@@ -76,6 +76,49 @@ Definition binding_wf input_count wire_count b :=
 
 Register binding_wf as vcpu.binding.wf.
 
+Definition reference_wf_b input_count wire_count r :=
+  match r with
+  | reference_Zero => true
+  | reference_One => true
+  | reference_Input i => PeanoNat.Nat.ltb i input_count
+  | reference_Wire i => PeanoNat.Nat.ltb i wire_count
+  end.
+
+Lemma reference_wf_b_reflect :
+  forall input_count wire_count r,
+  Bool.reflect (reference_wf input_count wire_count r) (reference_wf_b input_count wire_count r).
+Proof.
+  intros input_count wire_count r. destruct r as [ | | j | j]; simpl;
+  try apply true_reflect; apply PeanoNat.Nat.ltb_spec0.
+Qed.
+
+Definition binding_wf_b input_count wire_count b :=
+  match b with
+  | binding_Immidiate r => reference_wf_b input_count wire_count r
+  | binding_Not r => reference_wf_b input_count wire_count r
+  | binding_And r1 r2 =>
+    reference_wf_b input_count wire_count r1 &&
+    reference_wf_b input_count wire_count r2
+  | binding_Or r1 r2 =>
+    reference_wf_b input_count wire_count r1 &&
+    reference_wf_b input_count wire_count r2
+  | binding_Xor r1 r2 =>
+    reference_wf_b input_count wire_count r1 &&
+    reference_wf_b input_count wire_count r2
+  | binding_If r1 r2 r3 =>
+    reference_wf_b input_count wire_count r1 &&
+    (reference_wf_b input_count wire_count r2 &&
+    reference_wf_b input_count wire_count r3)
+  end.
+
+Lemma binding_wf_b_reflect :
+  forall input_count wire_count b,
+  Bool.reflect (binding_wf input_count wire_count b) (binding_wf_b input_count wire_count b).
+Proof.
+  intros input_count wire_count b. destruct b as [r | r | r1 r2 | r1 r2 | r1 r2 | r1 r2 r3]; simpl;
+  try apply true_reflect; do 2 try apply andb_reflect; apply reference_wf_b_reflect.
+Qed.
+
 Definition circuit_wires_wf c :=
   list_forall_i (binding_wf (circuit_input_count c)) (circuit_wires c).
 
@@ -88,6 +131,16 @@ Definition circuit_wf c :=
 Register circuit_wires_wf as vcpu.circuit.wires_wf.
 Register circuit_outputs_wf as vcpu.circuit.outputs_wf.
 Register circuit_wf as vcpu.circuit.wf.
+
+Record circuit_with_wf := {
+  circuit_with_wf_circuit : circuit;
+  circuit_with_wf_circuit_wf : circuit_wf circuit_with_wf_circuit;
+}.
+
+Register circuit_with_wf as vcpu.circuit_with_wf.type.
+Register Build_circuit_with_wf as vcpu.circuit_with_wf.constructor.
+Register circuit_with_wf_circuit as vcpu.circuit_with_wf.circuit.
+Register circuit_with_wf_circuit_wf as vcpu.circuit_with_wf.circuit_wf.
 
 Lemma reference_wf_big_enough :
   forall input_count input_count' wire_count wire_count' r,
@@ -167,6 +220,25 @@ Proof.
 Qed.
 
 Register circuit_set_outputs_wf as vcpu.circuit.set_outputs_wf.
+
+Definition circuit_set_outputs_with_wf
+  c_with_wf outputs
+  (H :
+    list_forallb
+      (fun i => PeanoNat.Nat.ltb i (length (circuit_wires (circuit_with_wf_circuit c_with_wf))))
+      outputs =
+    true
+  )
+  : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_set_outputs (circuit_with_wf_circuit c_with_wf) outputs;
+  circuit_with_wf_circuit_wf :=
+    circuit_set_outputs_wf
+      (circuit_with_wf_circuit c_with_wf) outputs
+      (circuit_with_wf_circuit_wf c_with_wf)
+      (proj2 (Bool.reflect_iff _ _ (list_forallb_reflect _ _ _ (fun i => PeanoNat.Nat.ltb_spec0 i _))) H);
+|}.
+
+Register circuit_set_outputs_with_wf as vcpu.circuit.set_outputs_with_wf.
 
 Definition circuit_add_translate_reference parent_wire_count input_references r :=
   match r with
@@ -265,6 +337,35 @@ Qed.
 
 Register circuit_add_wf as vcpu.circuit.add_wf.
 
+Definition circuit_add_with_wf
+  c_parent_with_wf c_child_with_wf input_references
+  (H1 : length input_references = circuit_input_count (circuit_with_wf_circuit c_child_with_wf))
+  (H2 :
+    list_forallb
+      (
+        reference_wf_b
+          (circuit_input_count (circuit_with_wf_circuit c_parent_with_wf))
+          (List.length (circuit_wires (circuit_with_wf_circuit c_parent_with_wf)))
+      )
+      input_references =
+    true
+  )
+  : circuit_with_wf := {|
+  circuit_with_wf_circuit :=
+    circuit_add
+      (circuit_with_wf_circuit c_parent_with_wf)
+      (circuit_with_wf_circuit c_child_with_wf) input_references;
+  circuit_with_wf_circuit_wf :=
+    circuit_add_wf
+      (circuit_with_wf_circuit c_parent_with_wf)
+      (circuit_with_wf_circuit c_child_with_wf) input_references
+      (circuit_with_wf_circuit_wf c_parent_with_wf)
+      (circuit_with_wf_circuit_wf c_child_with_wf) H1
+      (proj2 (Bool.reflect_iff _ _ (list_forallb_reflect _ _ _ (reference_wf_b_reflect _ _))) H2);
+|}.
+
+Register circuit_add_with_wf as vcpu.circuit.add_with_wf.
+
 Definition circuit_empty input_count := {|
   circuit_input_count := input_count;
   circuit_wires := [];
@@ -277,12 +378,17 @@ Theorem circuit_empty_wf :
   forall input_count,
   circuit_wf (circuit_empty input_count).
 Proof.
-  intros input_count. split.
-  - apply I.
-  - apply I.
+  intros input_count. cbv. auto.
 Qed.
 
 Register circuit_empty_wf as vcpu.circuit.empty_wf.
+
+Definition circuit_empty_with_wf input_count : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_empty input_count;
+  circuit_with_wf_circuit_wf := circuit_empty_wf input_count;
+|}.
+
+Register circuit_empty_with_wf as vcpu.circuit.empty_with_wf.
 
 Definition circuit_id input_count := {|
   circuit_input_count := input_count;
@@ -303,6 +409,13 @@ Qed.
 
 Register circuit_id_wf as vcpu.circuit.id_wf.
 
+Definition circuit_id_with_wf input_count : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_id input_count;
+  circuit_with_wf_circuit_wf := circuit_id_wf input_count;
+|}.
+
+Register circuit_id_with_wf as vcpu.circuit.id_with_wf.
+
 Definition circuit_zero := {|
   circuit_input_count := 0;
   circuit_wires := [binding_Immidiate reference_Zero];
@@ -318,6 +431,13 @@ Proof.
 Qed.
 
 Register circuit_zero_wf as vcpu.circuit.zero_wf.
+
+Definition circuit_zero_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_zero;
+  circuit_with_wf_circuit_wf := circuit_zero_wf;
+|}.
+
+Register circuit_zero_with_wf as vcpu.circuit.zero_with_wf.
 
 Definition circuit_one := {|
   circuit_input_count := 0;
@@ -335,6 +455,13 @@ Qed.
 
 Register circuit_one_wf as vcpu.circuit.one_wf.
 
+Definition circuit_one_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_one;
+  circuit_with_wf_circuit_wf := circuit_one_wf;
+|}.
+
+Register circuit_one_with_wf as vcpu.circuit.one_with_wf.
+
 Definition circuit_not := {|
   circuit_input_count := 1;
   circuit_wires := [binding_Not (reference_Input 0)];
@@ -350,6 +477,13 @@ Proof.
 Qed.
 
 Register circuit_not_wf as vcpu.circuit.not_wf.
+
+Definition circuit_not_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_not;
+  circuit_with_wf_circuit_wf := circuit_not_wf;
+|}.
+
+Register circuit_not_with_wf as vcpu.circuit.not_with_wf.
 
 Definition circuit_and := {|
   circuit_input_count := 2;
@@ -367,6 +501,13 @@ Qed.
 
 Register circuit_and_wf as vcpu.circuit.and_wf.
 
+Definition circuit_and_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_and;
+  circuit_with_wf_circuit_wf := circuit_and_wf;
+|}.
+
+Register circuit_and_with_wf as vcpu.circuit.and_with_wf.
+
 Definition circuit_or := {|
   circuit_input_count := 2;
   circuit_wires := [binding_Or (reference_Input 0) (reference_Input 1)];
@@ -383,6 +524,13 @@ Qed.
 
 Register circuit_or_wf as vcpu.circuit.or_wf.
 
+Definition circuit_or_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_or;
+  circuit_with_wf_circuit_wf := circuit_or_wf;
+|}.
+
+Register circuit_or_with_wf as vcpu.circuit.or_with_wf.
+
 Definition circuit_xor := {|
   circuit_input_count := 2;
   circuit_wires := [binding_Xor (reference_Input 0) (reference_Input 1)];
@@ -398,6 +546,13 @@ Proof.
 Qed.
 
 Register circuit_xor_wf as vcpu.circuit.xor_wf.
+
+Definition circuit_xor_with_wf : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_xor;
+  circuit_with_wf_circuit_wf := circuit_xor_wf;
+|}.
+
+Register circuit_xor_with_wf as vcpu.circuit.xor_with_wf.
 
 Definition circuit_switch data_size := {|
   circuit_input_count := 1 + 2 * data_size;
@@ -420,6 +575,13 @@ Proof.
 Qed.
 
 Register circuit_switch_wf as vcpu.circuit.switch_wf.
+
+Definition circuit_switch_with_wf data_size : circuit_with_wf := {|
+  circuit_with_wf_circuit := circuit_switch data_size;
+  circuit_with_wf_circuit_wf := circuit_switch_wf data_size;
+|}.
+
+Register circuit_switch_with_wf as vcpu.circuit.switch_with_wf.
 
 Definition circuit_simplify_translate_reference mapping r :=
   match r with
@@ -465,8 +627,6 @@ Definition circuit_simplify c :=
   |}.
 
 Register circuit_simplify as vcpu.circuit.simplify.
-
-Print binding_wf.
 
 (*Inductive binding :=
   | binding_Zero
