@@ -1,13 +1,25 @@
 Require Import Btauto.
 Require Import Lia.
+Require Coq.Lists.List.
+Import List.ListNotations.
+Import Coq.NArith.BinNat.
 
 #[global] Obligation Tactic := idtac.
 
-Require Coq.Lists.List.
-Import List.ListNotations.
-
 Open Scope list_scope.
 Open Scope bool_scope.
+
+Notation binnat := Coq.Numbers.BinNums.N.
+
+Arguments N.add : simpl nomatch.
+Arguments N.mul : simpl nomatch.
+
+Lemma pos_of_succ_nat :
+  forall n,
+  N.pos (BinPos.Pos.of_succ_nat n) = N.succ (N.of_nat n).
+Proof.
+  intros n. rewrite <- Nnat.Nat2N.inj_succ. auto.
+Qed.
 
 Infix "^^" := xorb (at level 40, left associativity) : bool_scope.
 
@@ -79,6 +91,15 @@ Proof.
   intros A f l H. induction l as [ | x l' IH].
   - simpl. auto.
   - specialize (H x). simpl. auto.
+Qed.
+
+Lemma list_forall_list_map :
+  forall {A B} f (g : A -> B) l,
+  list_forall f (List.map g l) <-> list_forall (fun x => f (g x)) l.
+Proof.
+  intros A B f g l. induction l as [ | x l' IH].
+  - intuition auto.
+  - simpl. intuition auto.
 Qed.
 
 Lemma list_forall_list_seq :
@@ -190,7 +211,7 @@ Proof.
   - simpl. rewrite (list_forall_i_aux_shift _ 0 1). intuition auto.
 Qed.
 
-Lemma list_forall_i_aux_equiv :
+Lemma list_forall_i_aux_to_simple :
   forall {A} f s (l : list A),
   list_forall_i_aux f s l <-> list_forall_i (fun i x => f (s + i) x) l.
 Proof.
@@ -224,6 +245,137 @@ Proof.
   intros A B f s g l. generalize dependent s. induction l as [ | x l' IH]; intros s.
   - simpl. intuition auto.
   - specialize (IH (S s)). simpl. intuition auto.
+Qed.
+
+Lemma list_forall_i_map :
+  forall {A B} f (g : A -> B) (l : list A),
+  list_forall_i f (List.map g l) <-> list_forall_i (fun i x => f i (g x)) l.
+Proof.
+  intros A B f g l. apply list_forall_i_aux_map.
+Qed.
+
+Fixpoint list_forall_i_bin_aux {A} f i (l : list A) :=
+  match l with
+  | [] => True
+  | x :: l' => f i x /\ list_forall_i_bin_aux f (N.succ i) l'
+  end.
+
+Definition list_forall_i_bin {A} f (l : list A) := list_forall_i_bin_aux f 0%N l.
+
+Lemma list_forall_i_bin_aux_equiv :
+  forall A f i (l : list A),
+  list_forall_i_bin_aux f i l = list_forall_i_aux (fun i x => f (N.of_nat i) x) (N.to_nat i) l.
+Proof.
+  intros A f i l. generalize dependent i. induction l as [ | x l' IH]; intros i.
+  - auto.
+  - simpl. rewrite IH. rewrite Nnat.N2Nat.id, Nnat.N2Nat.inj_succ. auto.
+Qed.
+
+Lemma list_forall_i_bin_equiv :
+  forall A f (l : list A),
+  list_forall_i_bin f l = list_forall_i (fun i x => f (N.of_nat i) x) l.
+Proof.
+  intros A f l. apply list_forall_i_bin_aux_equiv.
+Qed.
+
+Lemma list_forall_i_bin_aux_ext :
+  forall {A} f1 f2 s (l : list A),
+  (forall i x, f1 i x <-> f2 i x) ->
+  list_forall_i_bin_aux f1 s l <-> list_forall_i_bin_aux f2 s l.
+Proof.
+  intros A f1 f2 s l H. generalize dependent s. induction l as [ | x l' IH]; intros s.
+  - simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. rewrite H. intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_ext :
+  forall {A} f1 f2 (l : list A),
+  (forall i x, f1 i x <-> f2 i x) ->
+  list_forall_i_bin f1 l <-> list_forall_i_bin f2 l.
+Proof.
+  unfold list_forall_i. intros A f1 f2 l. apply (list_forall_i_bin_aux_ext f1 f2 0 l).
+Qed.
+
+Lemma list_forall_i_bin_aux_incr :
+  forall {A} (f1 f2 : _ -> _ -> Prop) s (l : list A),
+  list_forall_i_bin_aux f1 s l ->
+  (forall i x, f1 i x -> f2 i x) ->
+  list_forall_i_bin_aux f2 s l.
+Proof.
+  intros A f1 f2 s l H1 H2. generalize dependent s. induction l as [ | x l' IH]; intros s.
+  - simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_incr :
+  forall {A} (f1 f2 : _ -> _ -> Prop) (l : list A),
+  list_forall_i_bin f1 l ->
+  (forall i x, f1 i x -> f2 i x) ->
+  list_forall_i_bin f2 l.
+Proof.
+  unfold list_forall_i_bin. intros A f1 f2 l H1 H2. apply (list_forall_i_bin_aux_incr f1 f2 0 l H1 H2).
+Qed.
+
+Lemma list_forall_i_bin_aux_shift :
+  forall {A} f s t (l : list A),
+  list_forall_i_bin_aux f (t + s) l <-> list_forall_i_bin_aux (fun i x => f (t + i)%N x) s l.
+Proof.
+  intros A f s t l. generalize dependent s. induction l as [ | x l' IH]; intros s.
+  - simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. rewrite <- N.add_succ_comm in IH. rewrite <- N.add_succ_l. intuition auto.
+Qed.
+
+Lemma list_forall_list_forall_i_bin :
+  forall {A} f (l : list A),
+  list_forall f l <-> list_forall_i_bin (fun _ => f) l.
+Proof.
+  intros A f l. unfold list_forall_i_bin. induction l as [ | x l' IH].
+  - intuition auto.
+  - simpl. rewrite (list_forall_i_bin_aux_shift _ 0 1). intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_aux_to_simple :
+  forall {A} f s (l : list A),
+  list_forall_i_bin_aux f s l <-> list_forall_i_bin (fun i x => f (s + i)%N x) l.
+Proof.
+  intros A f s l. unfold list_forall_i_bin. generalize dependent s. induction l as [ | x l' IH]; intros s.
+  - simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. rewrite (list_forall_i_bin_aux_shift _ 0 1).
+    rewrite N.add_0_r. rewrite IH. apply and_iff_compat_l.
+    apply list_forall_i_bin_ext. intros i y. rewrite N.add_1_l. rewrite N.add_succ_comm. intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_aux_app :
+  forall {A} f s (l1 l2 : list A),
+  list_forall_i_bin_aux f s (l1 ++ l2) <->
+    list_forall_i_bin_aux f s l1 /\ list_forall_i_bin_aux f (s + N.of_nat (length l1)) l2.
+Proof.
+  intros A f s l1 l2. generalize dependent s. induction l1 as [ | x l1' IH]; intros s.
+  - rewrite N.add_comm. simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. rewrite pos_of_succ_nat. rewrite <- N.add_succ_comm. intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_app :
+  forall {A} f (l1 l2 : list A),
+  list_forall_i_bin f (l1 ++ l2) <-> list_forall_i_bin f l1 /\ list_forall_i_bin_aux f (N.of_nat (length l1)) l2.
+Proof.
+  unfold list_forall_i_bin. intros A f l1 l2. apply (list_forall_i_bin_aux_app f 0 l1 l2).
+Qed.
+
+Lemma list_forall_i_bin_aux_map :
+  forall {A B} f s (g : A -> B) (l : list A),
+  list_forall_i_bin_aux f s (List.map g l) <-> list_forall_i_bin_aux (fun i x => f i (g x)) s l.
+Proof.
+  intros A B f s g l. generalize dependent s. induction l as [ | x l' IH]; intros s.
+  - simpl. intuition auto.
+  - specialize (IH (N.succ s)). simpl. intuition auto.
+Qed.
+
+Lemma list_forall_i_bin_map :
+  forall {A B} f (g : A -> B) (l : list A),
+  list_forall_i_bin f (List.map g l) <-> list_forall_i_bin (fun i x => f i (g x)) l.
+Proof.
+  intros A B f g l. apply list_forall_i_bin_aux_map.
 Qed.
 
 Fixpoint list_forall_b_i_aux {A} f i (l : list A) :=
@@ -488,6 +640,9 @@ Proof.
   intros A l1 l2 l3 default H. unfold list_select. rewrite List.map_map. apply list_map_ext_precise.
   apply (list_forall_incr _ _ _ H). intros i H1. apply List.nth_nth_nth_map. auto.
 Qed.
+
+Definition list_select_bin {A} values indices (default : A) :=
+  List.map (fun i => List.nth (N.to_nat i) values default) indices.
 
 Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=
   match l1, l2 with

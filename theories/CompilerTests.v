@@ -3,8 +3,10 @@ Require Import Circuit.
 Require Import Vector.
 Require Import Plugin.
 
+Require Import Lia.
 Require Coq.Lists.List.
 Import List.ListNotations.
+Import Coq.NArith.BinNat.
 
 Unset Program Cases.
 
@@ -16,7 +18,7 @@ Next Obligation.
   - simpl in H. congruence.
   - destruct l' as [ | b' l''].
     + auto.
-    + simpl in H. congruence.
+    + simpl in H. lia.
 Qed.
 
 Set Program Cases.
@@ -81,8 +83,12 @@ Compute circuit_compute test4_circuit [false; true; false; false]. (* [true; tru
 Compute circuit_compute test4_circuit [true; true; false; false]. (* [false; false; false; true] *)
 
 #[program] Definition adder {n} (bv : bitvec (2 * n)) : bitvec n :=
-  let bv1 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq 0 n) false |} in
-  let bv2 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq n n) false |} in
+  let bv1 : bitvec n := {|
+    vector_list := list_select (vector_list bv) (List.seq 0 (N.to_nat n)) false
+  |} in
+  let bv2 : bitvec n := {|
+    vector_list := list_select (vector_list bv) (List.seq (N.to_nat n) (N.to_nat n)) false
+  |} in
   {|
     vector_list := list_add_aux (vector_list bv1) (vector_list bv2) [] false;
   |}.
@@ -93,10 +99,10 @@ Admitted.
 Next Obligation.
 Admitted.
 
-Definition test5 := @adder 8.
+Definition test5 := @adder 32.
 
 Compile test5.
-Print test5_circuit_wf.
+Compute test5_circuit.
 Compute length (circuit_wires test5_circuit). (* 3075 *)
 Compute circuit_compute test5_circuit [true; false; true; false; false; false; false; false;
   false; true; false; false; false; false; false; false].
@@ -150,7 +156,7 @@ Next Obligation.
       * simpl in H. congruence.
       * simpl in H. destruct l''' as [ | b''' l''''].
         -- auto.
-        -- simpl in H. congruence.
+        -- simpl in H. lia.
 Qed.
 
 Set Program Cases.
@@ -166,7 +172,7 @@ Next Obligation.
 Admitted.
 
 #[program] Definition shift_left_one {n} (bv : bitvec n) : bitvec n := {|
-  vector_list := false :: list_select (vector_list bv) (List.seq 0 (pred n)) false;
+  vector_list := false :: list_select (vector_list bv) (List.seq 0 (pred (N.to_nat n))) false;
 |}.
 Next Obligation.
 Admitted.
@@ -176,7 +182,7 @@ Compile test8.
 Compute test8_circuit.
 
 #[program] Definition zero {n} : bitvec n := {|
-  vector_list := list_init (fun _ => false) n;
+  vector_list := list_init (fun _ => false) (N.to_nat n);
 |}.
 Next Obligation.
 Admitted.
@@ -191,18 +197,22 @@ Definition mul {n} (bv1 bv2 : bitvec n) : bitvec n :=
   ).
 
 #[program] Definition muler {n} (bv : bitvec (2 * n)) : bitvec n :=
-  let bv1 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq 0 n) false |} in
-  let bv2 : bitvec n := {| vector_list := list_select (vector_list bv) (List.seq n n) false |} in
+  let bv1 : bitvec n := {|
+    vector_list := list_select (vector_list bv) (List.seq 0 (N.to_nat n)) false
+  |} in
+  let bv2 : bitvec n := {|
+    vector_list := list_select (vector_list bv) (List.seq (N.to_nat n) (N.to_nat n)) false
+  |} in
   mul bv1 bv2.
 Next Obligation.
 Admitted.
 Next Obligation.
 Admitted.
 
-Compile zero of 8 as zero_8.
-Compile shift_left_one of 8 as shift_left_one_8.
-Compile add of 8 as add_8.
-Compile mul of 8 as mul_8.
+Compile zero of 8%N as zero_8.
+Compile shift_left_one of 8%N as shift_left_one_8.
+Compile add of 8%N as add_8.
+Compile mul of 8%N as mul_8.
 
 Compute mul
   {| vector_list := bitlist_of_nat 8 12; vector_wf := eq_refl |}

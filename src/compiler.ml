@@ -56,14 +56,43 @@ let to_nat_constr (env : Environ.env) (n : int) : EConstr.t =
     |]
   )
 
+let to_binnat_constr (env : Environ.env) (n : int) : EConstr.t =
+  assert (n >= 0);
+  let rec aux n =
+    if n = 1
+    then get_ref env "num.pos.xH"
+    else
+      EConstr.mkApp (
+        (if n mod 2 = 0 then get_ref env "num.pos.xO" else get_ref env "num.pos.xI"),
+        [|aux (n / 2)|]
+      ) in
+  if n = 0
+  then get_ref env "num.N.N0"
+  else EConstr.mkApp (get_ref env "num.N.Npos", [|aux n|])
+
 let rec of_nat_constr (env : Environ.env) (sigma : Evd.evar_map) (t : EConstr.t) : int =
   match EConstr.kind sigma t with
   | _ when EConstr.eq_constr sigma t (get_ref env "num.nat.O") -> 0
   | App (f, [|t'|]) when EConstr.eq_constr sigma f (get_ref env "num.nat.S") -> succ (of_nat_constr env sigma t')
   | _ -> CErrors.user_err Pp.(str "Not an application of O or S:" ++ spc () ++ Printer.pr_econstr_env env sigma t)
 
+let of_binnat_constr (env : Environ.env) (sigma : Evd.evar_map) (t : EConstr.t) : int =
+  let rec aux t =
+    match EConstr.kind sigma t with
+    | App (f, [|t'|]) when EConstr.eq_constr sigma f (get_ref env "num.pos.xI") -> (aux t') * 2 + 1
+    | App (f, [|t'|]) when EConstr.eq_constr sigma f (get_ref env "num.pos.xO") -> (aux t') * 2
+    | _ when EConstr.eq_constr sigma t (get_ref env "num.pos.xH") -> 1
+    | _ -> CErrors.user_err Pp.(str "Not an application of xI, xO or xH:" ++ spc () ++ Printer.pr_econstr_env env sigma t) in
+  match EConstr.kind sigma t with
+  | _ when EConstr.eq_constr sigma t (get_ref env "num.N.N0") -> 0
+  | App (f, [|t'|]) when EConstr.eq_constr sigma f (get_ref env "num.N.Npos") -> aux t'
+  | _ -> CErrors.user_err Pp.(str "Not an application of N0 or Npos:" ++ spc () ++ Printer.pr_econstr_env env sigma t)
+
 let prove_nat_eq (env : Environ.env) (n : int) : EConstr.t =
   EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "num.nat.type"; to_nat_constr env n|])
+
+let prove_binnat_eq (env : Environ.env) (n : int) : EConstr.t =
+  EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "num.N.type"; to_binnat_constr env n|])
 
 let prove_nat_le (env : Environ.env) (n : int) (m : int) : EConstr.t =
   assert (n <= m);
@@ -87,7 +116,7 @@ let prove_nat_lt (env : Environ.env) (n : int) (m : int) : EConstr.t =
 let dest_vector_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : EConstr.t * int =
   match EConstr.kind sigma typ with
   | App (f, [|a1; a2|]) when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
-    (a1, a2 |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma) |> of_nat_constr env sigma)
+    (a1, a2 |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma) |> of_binnat_constr env sigma)
   | _ -> CErrors.user_err Pp.(str "Not an application of vector:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
 
 let to_vector (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) : EConstr.t =
@@ -95,9 +124,9 @@ let to_vector (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) : ECons
     get_ref env "vcpu.vector.constructor",
     [|
       typ;
-      to_nat_constr env (l |> List.length);
+      to_binnat_constr env (l |> List.length);
       to_list_constr env typ l;
-      prove_nat_eq env (l |> List.length);
+      prove_binnat_eq env (l |> List.length);
     |]
   )
 
@@ -121,9 +150,9 @@ let to_reference_constr (env : Environ.env) (r : reference) : EConstr.t =
   | Reference_one ->
     get_ref env "vcpu.reference.One"
   | Reference_input i ->
-    EConstr.mkApp (get_ref env "vcpu.reference.Input", [|i |> to_nat_constr env|])
+    EConstr.mkApp (get_ref env "vcpu.reference.Input", [|i |> to_binnat_constr env|])
   | Reference_wire i ->
-    EConstr.mkApp (get_ref env "vcpu.reference.Wire", [|i |> to_nat_constr env|])
+    EConstr.mkApp (get_ref env "vcpu.reference.Wire", [|i |> to_binnat_constr env|])
 
 type binding =
   | Binding_immidiate of reference
@@ -236,7 +265,7 @@ let circuit_set_outputs (c : circuit) (outputs : int list) : circuit =
         get_ref env "vcpu.circuit.set_outputs_with_wf",
         [|
           c.circuit_with_wf_constr env sigma;
-          outputs |> List.map (to_nat_constr env) |> to_list_constr env (get_ref env "num.nat.type");
+          outputs |> List.map (to_binnat_constr env) |> to_list_constr env (get_ref env "num.N.type");
           EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
         |]
       )
@@ -280,7 +309,7 @@ let circuit_add (c_parent : circuit) (c_child : circuit) (input_references : ref
             input_references
               |> List.map (to_reference_constr env)
               |> to_list_constr env (get_ref env "vcpu.reference.type");
-            prove_nat_eq env (input_references |> List.length);
+            prove_binnat_eq env (input_references |> List.length);
             EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
           |]
         )
@@ -295,7 +324,7 @@ let circuit_empty (input_count : int) : circuit =
     circuit_wires = [];
     circuit_outputs = [];
     circuit_with_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.empty_with_wf", [|to_nat_constr env input_count|])
+      EConstr.mkApp (get_ref env "vcpu.circuit.empty_with_wf", [|to_binnat_constr env input_count|])
     );
   }
 
@@ -305,7 +334,7 @@ let circuit_id (input_count : int) : circuit =
     circuit_wires = List.init input_count (fun i -> Binding_immidiate (Reference_input i));
     circuit_outputs = List.init input_count (fun i -> i);
     circuit_with_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.id_with_wf", [|to_nat_constr env input_count|])
+      EConstr.mkApp (get_ref env "vcpu.circuit.id_with_wf", [|to_binnat_constr env input_count|])
     );
   }
 
@@ -366,7 +395,7 @@ let circuit_switch (data_size : int) : circuit =
       );
     circuit_outputs = List.init data_size (fun i -> i);
     circuit_with_wf_constr = (fun env sigma ->
-      EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf", [|to_nat_constr env data_size|])
+      EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf", [|to_binnat_constr env data_size|])
     );
   }
 
@@ -399,7 +428,7 @@ let rec size_of_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t
   | _, _ when EConstr.eq_constr sigma typ (get_ref env "core.bool.type") -> 1
   | _, [a1; a2] when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
     (a1 |> size_of_type env sigma) *
-    (a2 |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma) |> of_nat_constr env sigma)
+    (a2 |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma) |> of_binnat_constr env sigma)
   | Ind (ind, _), params ->
     let constructor_arg_types = constructor_arg_types_of_inductive env sigma ind params in
     List.length constructor_arg_types +

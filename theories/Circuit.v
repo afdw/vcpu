@@ -4,12 +4,13 @@ Require Import Lia.
 
 Require Coq.Lists.List.
 Import List.ListNotations.
+Import Coq.NArith.BinNat.
 
 Inductive reference :=
   | reference_Zero
   | reference_One
-  | reference_Input (i : nat)
-  | reference_Wire (i : nat).
+  | reference_Input (i : binnat)
+  | reference_Wire (i : binnat).
 
 Register reference as vcpu.reference.type.
 Register reference_Zero as vcpu.reference.Zero.
@@ -34,9 +35,9 @@ Register binding_Xor as vcpu.binding.Xor.
 Register binding_If as vcpu.binding.If.
 
 Record circuit := {
-  circuit_input_count : nat;
+  circuit_input_count : binnat;
   circuit_wires : list binding;
-  circuit_outputs : list nat;
+  circuit_outputs : list binnat;
 }.
 
 Register circuit as vcpu.circuit.type.
@@ -49,8 +50,8 @@ Definition reference_wf input_count wire_count r :=
   match r with
   | reference_Zero => True
   | reference_One => True
-  | reference_Input i => i < input_count
-  | reference_Wire i => i < wire_count
+  | reference_Input i => (i < input_count)%N
+  | reference_Wire i => (i < wire_count)%N
   end.
 
 Register reference_wf as vcpu.reference.wf.
@@ -80,8 +81,8 @@ Definition reference_wf_b input_count wire_count r :=
   match r with
   | reference_Zero => true
   | reference_One => true
-  | reference_Input i => PeanoNat.Nat.ltb i input_count
-  | reference_Wire i => PeanoNat.Nat.ltb i wire_count
+  | reference_Input i => (i <? input_count)%N
+  | reference_Wire i => (i <? wire_count)%N
   end.
 
 Lemma reference_wf_b_reflect :
@@ -89,7 +90,7 @@ Lemma reference_wf_b_reflect :
   Bool.reflect (reference_wf input_count wire_count r) (reference_wf_b input_count wire_count r).
 Proof.
   intros input_count wire_count r. destruct r as [ | | j | j]; simpl;
-  try apply true_reflect; apply PeanoNat.Nat.ltb_spec0.
+  try apply true_reflect; apply N.ltb_spec0.
 Qed.
 
 Definition binding_wf_b input_count wire_count b :=
@@ -120,10 +121,10 @@ Proof.
 Qed.
 
 Definition circuit_wires_wf c :=
-  list_forall_i (binding_wf (circuit_input_count c)) (circuit_wires c).
+  list_forall_i_bin (binding_wf (circuit_input_count c)) (circuit_wires c).
 
 Definition circuit_outputs_wf c :=
-  list_forall (fun i => i < length (circuit_wires c)) (circuit_outputs c).
+  list_forall (fun i => (i < N.of_nat (length (circuit_wires c)))%N) (circuit_outputs c).
 
 Definition circuit_wf c :=
   circuit_wires_wf c /\ circuit_outputs_wf c.
@@ -145,8 +146,8 @@ Register circuit_with_wf_circuit_wf as vcpu.circuit_with_wf.circuit_wf.
 Lemma reference_wf_big_enough :
   forall input_count input_count' wire_count wire_count' r,
   reference_wf input_count wire_count r ->
-  input_count' >= input_count ->
-  wire_count' >= wire_count ->
+  (input_count' >= input_count)%N ->
+  (wire_count' >= wire_count)%N ->
   reference_wf input_count' wire_count' r.
 Proof.
   intros input_count input_count' wire_count wire_count' r H1 H2 H3.
@@ -156,8 +157,8 @@ Qed.
 Lemma binding_wf_big_enough :
   forall input_count input_count' wire_count wire_count' b,
   binding_wf input_count wire_count b ->
-  input_count' >= input_count ->
-  wire_count' >= wire_count ->
+  (input_count' >= input_count)%N ->
+  (wire_count' >= wire_count)%N ->
   binding_wf input_count' wire_count' b.
 Proof.
   intros input_count input_count' wire_count wire_count' b H1 H2 H3.
@@ -169,8 +170,8 @@ Definition reference_compute inputs intermediates r :=
   match r with
   | reference_Zero => false
   | reference_One => true
-  | reference_Input i => List.nth i inputs false
-  | reference_Wire i => List.nth i intermediates false
+  | reference_Input i => List.nth (N.to_nat i) inputs false
+  | reference_Wire i => List.nth (N.to_nat i) intermediates false
   end.
 
 Definition binding_compute inputs intermediates b :=
@@ -198,7 +199,7 @@ Definition circuit_compute_wires c inputs :=
   circuit_compute_wires_aux [] (circuit_wires c) inputs.
 
 Definition circuit_compute c inputs :=
-  list_select (circuit_compute_wires c inputs) (circuit_outputs c) false.
+  list_select_bin (circuit_compute_wires c inputs) (circuit_outputs c) false.
 
 Definition circuit_set_outputs c outputs := {|
   circuit_input_count := circuit_input_count c;
@@ -211,7 +212,7 @@ Register circuit_set_outputs as vcpu.circuit.set_outputs.
 Lemma circuit_set_outputs_wf :
   forall c outputs,
   circuit_wf c ->
-  list_forall (fun i => i < length (circuit_wires c)) outputs ->
+  list_forall (fun i => (i < N.of_nat (length (circuit_wires c)))%N) outputs ->
   circuit_wf (circuit_set_outputs c outputs).
 Proof.
   intros c outputs H1 H2. split.
@@ -225,7 +226,7 @@ Definition circuit_set_outputs_with_wf
   c_with_wf outputs
   (H :
     list_forall_b
-      (fun i => PeanoNat.Nat.ltb i (length (circuit_wires (circuit_with_wf_circuit c_with_wf))))
+      (fun i => (i <? N.of_nat (length (circuit_wires (circuit_with_wf_circuit c_with_wf))))%N)
       outputs =
     true
   )
@@ -235,7 +236,7 @@ Definition circuit_set_outputs_with_wf
     circuit_set_outputs_wf
       (circuit_with_wf_circuit c_with_wf) outputs
       (circuit_with_wf_circuit_wf c_with_wf)
-      (proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (fun i => PeanoNat.Nat.ltb_spec0 i _))) H);
+      (proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (fun i => N.ltb_spec0 i _))) H);
 |}.
 
 Register circuit_set_outputs_with_wf as vcpu.circuit.set_outputs_with_wf.
@@ -244,7 +245,7 @@ Definition circuit_add_translate_reference parent_wire_count input_references r 
   match r with
   | reference_Zero => reference_Zero
   | reference_One => reference_One
-  | reference_Input i => List.nth i input_references reference_Zero
+  | reference_Input i => List.nth (N.to_nat i) input_references reference_Zero
   | reference_Wire i => reference_Wire (parent_wire_count + i)
   end.
 
@@ -264,7 +265,7 @@ Definition circuit_add c_parent c_child input_references := {|
   circuit_wires :=
     circuit_wires c_parent ++
     List.map
-      (circuit_add_translate_binding (length (circuit_wires c_parent)) input_references)
+      (circuit_add_translate_binding (N.of_nat (length (circuit_wires c_parent))) input_references)
       (circuit_wires c_child);
   circuit_outputs := circuit_outputs c_parent;
 |}.
@@ -275,16 +276,16 @@ Lemma circuit_add_translate_reference_wf :
   forall c_parent c_child input_references,
   circuit_wf c_parent ->
   circuit_wf c_child ->
-  length input_references = circuit_input_count c_child ->
+  N.of_nat (length input_references) = circuit_input_count c_child ->
   list_forall
-    (reference_wf (circuit_input_count c_parent) (List.length (circuit_wires c_parent)))
+    (reference_wf (circuit_input_count c_parent) (N.of_nat (length (circuit_wires c_parent))))
     input_references ->
   forall i r,
   reference_wf (circuit_input_count c_child) i r ->
   reference_wf
     (circuit_input_count c_parent)
-    (length (circuit_wires c_parent) + i)
-    (circuit_add_translate_reference (length (circuit_wires c_parent)) input_references r).
+    (N.of_nat (length (circuit_wires c_parent)) + i)
+    (circuit_add_translate_reference (N.of_nat (length (circuit_wires c_parent))) input_references r).
 Proof.
   intros c_parent c_child input_references H1 H2 H3 H4 i r H5.
   destruct r as [ | | j | j]; simpl; simpl in H5.
@@ -300,16 +301,16 @@ Lemma circuit_add_translate_binding_wf :
   forall c_parent c_child input_references,
   circuit_wf c_parent ->
   circuit_wf c_child ->
-  length input_references = circuit_input_count c_child ->
+  N.of_nat (length input_references) = circuit_input_count c_child ->
   list_forall
-    (reference_wf (circuit_input_count c_parent) (List.length (circuit_wires c_parent)))
+    (reference_wf (circuit_input_count c_parent) (N.of_nat (length (circuit_wires c_parent))))
     input_references ->
   forall i b,
   binding_wf (circuit_input_count c_child) i b ->
   binding_wf
     (circuit_input_count c_parent)
-    (length (circuit_wires c_parent) + i)
-    (circuit_add_translate_binding (length (circuit_wires c_parent)) input_references b).
+    (N.of_nat (length (circuit_wires c_parent)) + i)
+    (circuit_add_translate_binding (N.of_nat (length (circuit_wires c_parent))) input_references b).
 Proof.
   intros c_parent c_child input_references H1 H2 H3 H4 i b H5.
   destruct b as [r | r | r1 r2 | r1 r2 | r1 r2 | r1 r2 r3]; simpl; simpl in H5;
@@ -320,17 +321,17 @@ Lemma circuit_add_wf :
   forall c_parent c_child input_references,
   circuit_wf c_parent ->
   circuit_wf c_child ->
-  length input_references = circuit_input_count c_child ->
+  N.of_nat (length input_references) = circuit_input_count c_child ->
   list_forall
-    (reference_wf (circuit_input_count c_parent) (List.length (circuit_wires c_parent)))
+    (reference_wf (circuit_input_count c_parent) (N.of_nat (length (circuit_wires c_parent))))
     input_references ->
   circuit_wf (circuit_add c_parent c_child input_references).
 Proof.
   intros c_parent c_child input_references H1 H2 H3. split.
-  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_app. split.
+  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_bin_app. split.
     + apply (proj1 H1).
-    + rewrite list_forall_i_aux_map. rewrite list_forall_i_aux_equiv.
-      apply (list_forall_i_incr _ _ _ (proj1 H2)).
+    + rewrite list_forall_i_bin_aux_map. rewrite list_forall_i_bin_aux_to_simple.
+      apply (list_forall_i_bin_incr _ _ _ (proj1 H2)).
       apply circuit_add_translate_binding_wf; auto.
   - unfold circuit_outputs_wf. apply (list_forall_incr _ _ _ (proj2 H1)). simpl. rewrite List.app_length. lia.
 Qed.
@@ -339,13 +340,13 @@ Register circuit_add_wf as vcpu.circuit.add_wf.
 
 Definition circuit_add_with_wf
   c_parent_with_wf c_child_with_wf input_references
-  (H1 : length input_references = circuit_input_count (circuit_with_wf_circuit c_child_with_wf))
+  (H1 : N.of_nat (length input_references) = circuit_input_count (circuit_with_wf_circuit c_child_with_wf))
   (H2 :
     list_forall_b
       (
         reference_wf_b
           (circuit_input_count (circuit_with_wf_circuit c_parent_with_wf))
-          (List.length (circuit_wires (circuit_with_wf_circuit c_parent_with_wf)))
+          (N.of_nat (List.length (circuit_wires (circuit_with_wf_circuit c_parent_with_wf))))
       )
       input_references =
     true
@@ -392,8 +393,8 @@ Register circuit_empty_with_wf as vcpu.circuit.empty_with_wf.
 
 Definition circuit_id input_count := {|
   circuit_input_count := input_count;
-  circuit_wires := list_init (fun i => binding_Immidiate (reference_Input i)) input_count;
-  circuit_outputs := List.seq 0 input_count;
+  circuit_wires := list_init (fun i => binding_Immidiate (reference_Input (N.of_nat i))) (N.to_nat input_count);
+  circuit_outputs := List.map N.of_nat (List.seq 0 (N.to_nat input_count));
 |}.
 
 Register circuit_id as vcpu.circuit.id.
@@ -403,8 +404,9 @@ Theorem circuit_id_wf :
   circuit_wf (circuit_id input_count).
 Proof.
   intros input_count. split.
-  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_list_init. simpl. auto.
-  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_seq. simpl. rewrite length_list_init. auto.
+  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_bin_equiv. rewrite list_forall_i_list_init. simpl. lia.
+  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_map. rewrite list_forall_list_seq. simpl.
+    rewrite length_list_init. lia.
 Qed.
 
 Register circuit_id_wf as vcpu.circuit.id_wf.
@@ -419,7 +421,7 @@ Register circuit_id_with_wf as vcpu.circuit.id_with_wf.
 Definition circuit_zero := {|
   circuit_input_count := 0;
   circuit_wires := [binding_Immidiate reference_Zero];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_zero as vcpu.circuit.zero.
@@ -442,7 +444,7 @@ Register circuit_zero_with_wf as vcpu.circuit.zero_with_wf.
 Definition circuit_one := {|
   circuit_input_count := 0;
   circuit_wires := [binding_Immidiate reference_One];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_one as vcpu.circuit.one.
@@ -465,7 +467,7 @@ Register circuit_one_with_wf as vcpu.circuit.one_with_wf.
 Definition circuit_not := {|
   circuit_input_count := 1;
   circuit_wires := [binding_Not (reference_Input 0)];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_not as vcpu.circuit.not.
@@ -488,7 +490,7 @@ Register circuit_not_with_wf as vcpu.circuit.not_with_wf.
 Definition circuit_and := {|
   circuit_input_count := 2;
   circuit_wires := [binding_And (reference_Input 0) (reference_Input 1)];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_and as vcpu.circuit.and.
@@ -511,7 +513,7 @@ Register circuit_and_with_wf as vcpu.circuit.and_with_wf.
 Definition circuit_or := {|
   circuit_input_count := 2;
   circuit_wires := [binding_Or (reference_Input 0) (reference_Input 1)];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_or as vcpu.circuit.or.
@@ -534,7 +536,7 @@ Register circuit_or_with_wf as vcpu.circuit.or_with_wf.
 Definition circuit_xor := {|
   circuit_input_count := 2;
   circuit_wires := [binding_Xor (reference_Input 0) (reference_Input 1)];
-  circuit_outputs := [0];
+  circuit_outputs := [0%N];
 |}.
 
 Register circuit_xor as vcpu.circuit.xor.
@@ -558,9 +560,12 @@ Definition circuit_switch data_size := {|
   circuit_input_count := 1 + 2 * data_size;
   circuit_wires :=
     list_init (fun i =>
-      binding_If (reference_Input 0) (reference_Input (1 + i)) (reference_Input (1 + data_size + i))
-    ) data_size;
-  circuit_outputs := List.seq 0 data_size;
+      binding_If
+        (reference_Input 0)
+        (reference_Input (1 + N.of_nat i))
+        (reference_Input (1 + data_size + N.of_nat i))
+    ) (N.to_nat data_size);
+  circuit_outputs := List.map N.of_nat (List.seq 0 (N.to_nat data_size));
 |}.
 
 Register circuit_switch as vcpu.circuit.switch.
@@ -570,8 +575,9 @@ Theorem circuit_switch_wf :
   circuit_wf (circuit_switch data_size).
 Proof.
   intros data_size. split.
-  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_list_init. simpl. lia.
-  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_seq. rewrite length_list_init. auto.
+  - unfold circuit_wires_wf. rewrite list_forall_i_bin_equiv. simpl. rewrite list_forall_i_list_init. simpl. lia.
+  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_map. rewrite list_forall_list_seq.
+    rewrite length_list_init. lia.
 Qed.
 
 Register circuit_switch_wf as vcpu.circuit.switch_wf.
@@ -583,7 +589,7 @@ Definition circuit_switch_with_wf data_size : circuit_with_wf := {|
 
 Register circuit_switch_with_wf as vcpu.circuit.switch_with_wf.
 
-Definition circuit_simplify_translate_reference mapping r :=
+(*Definition circuit_simplify_translate_reference mapping r :=
   match r with
   | reference_Zero => reference_Zero
   | reference_One => reference_One
@@ -626,7 +632,7 @@ Definition circuit_simplify c :=
     circuit_outputs := List.map (fun i => nat_list_assoc i mapping 0) (circuit_outputs c);
   |}.
 
-Register circuit_simplify as vcpu.circuit.simplify.
+Register circuit_simplify as vcpu.circuit.simplify.*)
 
 (*Inductive binding :=
   | binding_Zero
