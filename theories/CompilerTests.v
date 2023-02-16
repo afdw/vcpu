@@ -97,6 +97,7 @@ Admitted.
 Definition test5 := @adder 8.
 
 Compile test5.
+Print test5_circuit_wf.
 Compute length (circuit_wires test5_circuit). (* 3075 *)
 Compute circuit_compute test5_circuit [true; false; true; false; false; false; false; false;
   false; true; false; false; false; false; false; false].

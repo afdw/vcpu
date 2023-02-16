@@ -77,6 +77,19 @@ Proof.
       * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite PeanoNat.Nat.add_succ_r in H1. auto.
 Qed.
 
+Lemma list_forall_list_nth :
+  forall {A} f l i (default : A),
+  list_forall f l ->
+  i < length l ->
+  f (List.nth i l default).
+Proof.
+  intros A f l i default H1 H2. generalize dependent i. induction l as [ | x l' IH]; intros i H2.
+  - simpl in H2. lia.
+  - destruct H1 as (H3 & H4). destruct i as [ | i'].
+    + auto.
+    + specialize (IH H4 i'). simpl in H2. apply IH. lia.
+Qed.
+
 Fixpoint list_forall_i_aux {A} f i (l : list A) :=
   match l with
   | [] => True
@@ -362,6 +375,28 @@ Lemma list_forall_i_list_init :
   list_forall_i f (list_init g n) <-> forall i, i < n -> f i (g i).
 Proof.
   intros A f g n. apply (list_forall_i_aux_i_list_init_aux _ 0 _ _).
+Qed.
+
+Lemma list_forall_i_aux_i_list_seq :
+  forall f s t n,
+  list_forall_i_aux f s (List.seq t n) <-> forall i, i < n -> f (s + i) (t + i).
+Proof.
+  intros f s t n. generalize dependent t. generalize dependent s. induction n as [ | n' IH]; intros s t.
+  - simpl. intuition lia.
+  - simpl. specialize (IH (S s) (S t)). rewrite IH. split.
+    + intros (H1 & H2). intros i H3. destruct i as [ | i'].
+      * rewrite ? PeanoNat.Nat.add_0_r. auto.
+      * rewrite ? PeanoNat.Nat.add_succ_r. apply H2. lia.
+    + intros H1. split.
+      * specialize (H1 0 ltac:(lia)). rewrite ? PeanoNat.Nat.add_0_r in H1. auto.
+      * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite ? PeanoNat.Nat.add_succ_r in H1. auto.
+Qed.
+
+Lemma list_forall_i_list_seq :
+  forall f s n,
+  list_forall_i f (List.seq s n) <-> forall i, i < n -> f i (s + i).
+Proof.
+  intros f s n. apply (list_forall_i_aux_i_list_seq _ 0 _ _).
 Qed.
 
 Lemma list_fold_left_list_init_aux :

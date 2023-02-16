@@ -1,3 +1,4 @@
 (env
   (dev
     (flags (:standard -warn-error -A))))
+(dirs :standard \ payload)

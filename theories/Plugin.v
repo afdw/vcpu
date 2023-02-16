@@ -23,6 +23,16 @@ Fixpoint bitlist_of_nat (n m : nat) : list bool :=
   | S n' => (Nat.eqb (Nat.modulo m 2) 1) :: bitlist_of_nat n' (Nat.div m 2)
   end.
 
+Lemma prove_eq :
+  forall n m,
+  PeanoNat.Nat.eqb n m = true ->
+  n = m.
+Proof.
+  intros n m H. rewrite (Bool.reflect_iff _ _ (PeanoNat.Nat.eqb_spec n m)). auto.
+Qed.
+
+Register prove_eq as vcpu.prove_eq.
+
 Lemma prove_le :
   forall n m,
   PeanoNat.Nat.leb n m = true ->
