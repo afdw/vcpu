@@ -215,14 +215,21 @@ Compile add of 8%N as add_8.
 Compile mul of 8%N as mul_8.
 
 Compute mul
-  {| vector_list := bitlist_of_nat 8 12; vector_wf := eq_refl |}
-  {| vector_list := bitlist_of_nat 8 34; vector_wf := eq_refl |}.
-Compute bitlist_to_nat (circuit_compute add_8_circuit (bitlist_of_nat 8 12 ++ bitlist_of_nat 8 34)).
-Compute bitlist_to_nat (circuit_compute mul_8_circuit (bitlist_of_nat 8 11 ++ bitlist_of_nat 8 17)).
+  {| vector_list := fixed_bitlist_of_nat 8 12; vector_wf := eq_refl |}
+  {| vector_list := fixed_bitlist_of_nat 8 34; vector_wf := eq_refl |}.
+Compute bitlist_to_nat (circuit_compute add_8_circuit (fixed_bitlist_of_nat 8 12 ++ fixed_bitlist_of_nat 8 34)).
+Compute bitlist_to_nat (circuit_compute mul_8_circuit (fixed_bitlist_of_nat 8 11 ++ fixed_bitlist_of_nat 8 17)).
 
-(*Compile zero of 32 as zero_32.
-Compile shift_left_one of 32 as shift_left_one_32.
-Compile add of 32 as add_32.
-Compile mul of 32 as mul_32.
+(*
+Compile zero of 32%N as zero_32.
+Compile shift_left_one of 32%N as shift_left_one_32.
+Compile add of 32%N as add_32.
+Compile mul of 32%N as mul_32.
 
-Compute bitlist_to_nat (circuit_compute mul_32_circuit (bitlist_of_nat 32 3543 ++ bitlist_of_nat 32 1231)).*)
+Definition mul_32_circuit' := Eval vm_compute in mul_32_circuit.
+
+Set NativeCompute Timing.
+Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit'
+  (fixed_bitlist_of_binnat 32 3543 ++ fixed_bitlist_of_binnat 32 1231)).
+Unset NativeCompute Timing.
+*)

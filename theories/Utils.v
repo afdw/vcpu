@@ -667,3 +667,50 @@ Fixpoint nat_list_mem n l :=
   | [] => false
   | m :: l' => Nat.eqb m n || nat_list_mem n l'
   end.
+
+Fixpoint list_truncate {A} n l (default : A) :=
+  match n with
+  | 0 => []
+  | S n' =>
+    match l with
+    | [] => default :: list_truncate n' l default
+    | x :: l' => x :: list_truncate n' l' default
+    end
+  end.
+
+Fixpoint bitlist_to_nat (bl : list bool) : nat :=
+  match bl with
+  | [] => 0
+  | b :: bl' => (if b then 1 else 0) + 2 * bitlist_to_nat bl'
+  end.
+
+Register bitlist_to_nat as vcpu.bitlist_to_nat.
+
+Fixpoint fixed_bitlist_of_nat (n m : nat) : list bool :=
+  match n with
+  | 0 => []
+  | S n' => (Nat.eqb (Nat.modulo m 2) 1) :: fixed_bitlist_of_nat n' (Nat.div m 2)
+  end.
+
+Fixpoint bitlist_to_binnat (bl : list bool) : binnat :=
+  match bl with
+  | [] => 0%N
+  | false :: bl' => BinPosDef.Pos.Ndouble (bitlist_to_binnat bl')
+  | true :: bl' => BinPosDef.Pos.Nsucc_double (bitlist_to_binnat bl')
+  end.
+
+Fixpoint bitlist_of_positive (n : positive) : list bool :=
+  match n with
+  | xI n' => true :: bitlist_of_positive n'
+  | xO n' => false :: bitlist_of_positive n'
+  | xH => [true]
+  end.
+
+Definition bitlist_of_binnat n : list bool :=
+  match n with
+  | N0 => []
+  | Npos n' => bitlist_of_positive n'
+  end.
+
+Definition fixed_bitlist_of_binnat n m : list bool :=
+  list_truncate n (bitlist_of_binnat m) false.
