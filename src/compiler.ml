@@ -182,6 +182,7 @@ let to_binding_constr (env : Environ.env) (b : binding) : EConstr.t =
 
 type circuit = {
   circuit_input_count : int;
+  circuit_wire_count : int;
   circuit_wires : binding list;
   circuit_outputs : int list;
   circuit_with_wf_constr : Environ.env -> Evd.evar_map -> EConstr.t;
@@ -212,14 +213,17 @@ let binding_wf (input_count : int) (wire_count : int) (b : binding) : bool =
     reference_wf input_count wire_count r2 &&
     reference_wf input_count wire_count r3
 
+let circuit_wire_count_wf (c : circuit) : bool =
+  List.length c.circuit_wires = c.circuit_wire_count
+
 let circuit_wires_wf (c : circuit) : bool =
-  List.for_all2 (binding_wf c.circuit_input_count) (List.init (List.length c.circuit_wires) (fun i -> i)) c.circuit_wires
+  List.for_all2 (binding_wf c.circuit_input_count) (List.init c.circuit_wire_count (fun i -> i)) c.circuit_wires
 
 let circuit_outputs_wf (c : circuit) : bool =
-  c.circuit_outputs |> List.for_all (fun i -> i < List.length c.circuit_wires)
+  c.circuit_outputs |> List.for_all (fun i -> i < c.circuit_wire_count)
 
 let circuit_wf (c : circuit) : bool =
-  circuit_wires_wf c && circuit_outputs_wf c
+  circuit_wire_count_wf c && circuit_wires_wf c && circuit_outputs_wf c
 
 let reference_compute (inputs : bool list) (intermediates : bool list) (r : reference) : bool =
   match r with
@@ -255,9 +259,10 @@ let circuit_compute (c : circuit) (inputs : bool list) : bool list =
   list_select (circuit_compute_wires c inputs) c.circuit_outputs
 
 let circuit_set_outputs (c : circuit) (outputs : int list) : circuit =
-  assert (outputs |> List.for_all (fun i -> i < List.length c.circuit_wires));
+  assert (outputs |> List.for_all (fun i -> i < c.circuit_wire_count));
   {
     circuit_input_count = c.circuit_input_count;
+    circuit_wire_count = c.circuit_wire_count;
     circuit_wires = c.circuit_wires;
     circuit_outputs = outputs;
     circuit_with_wf_constr = (fun env sigma ->
@@ -291,14 +296,15 @@ let circuit_add_translate_binding (parent_wire_count : int) (input_references : 
 
 let circuit_add (c_parent : circuit) (c_child : circuit) (input_references : reference list) : circuit * int list =
   assert (List.length input_references = c_child.circuit_input_count);
-  assert (input_references |> List.for_all (reference_wf c_parent.circuit_input_count (List.length c_parent.circuit_wires)));
+  assert (input_references |> List.for_all (reference_wf c_parent.circuit_input_count c_parent.circuit_wire_count));
   (
     {
       circuit_input_count = c_parent.circuit_input_count;
+      circuit_wire_count = c_parent.circuit_wire_count + c_child.circuit_wire_count;
       circuit_wires =
         c_parent.circuit_wires @
           (c_child.circuit_wires |> List.map
-            (circuit_add_translate_binding (List.length c_parent.circuit_wires) input_references));
+            (circuit_add_translate_binding c_parent.circuit_wire_count input_references));
       circuit_outputs = c_parent.circuit_outputs;
       circuit_with_wf_constr = (fun env sigma ->
         EConstr.mkApp (
@@ -315,12 +321,13 @@ let circuit_add (c_parent : circuit) (c_child : circuit) (input_references : ref
         )
       );
     },
-    c_child.circuit_outputs |> List.map (fun i -> List.length c_parent.circuit_wires + i)
+    c_child.circuit_outputs |> List.map (fun i -> c_parent.circuit_wire_count + i)
   )
 
 let circuit_empty (input_count : int) : circuit =
   {
     circuit_input_count = input_count;
+    circuit_wire_count = 0;
     circuit_wires = [];
     circuit_outputs = [];
     circuit_with_wf_constr = (fun env sigma ->
@@ -331,6 +338,7 @@ let circuit_empty (input_count : int) : circuit =
 let circuit_id (input_count : int) : circuit =
   {
     circuit_input_count = input_count;
+    circuit_wire_count = input_count;
     circuit_wires = List.init input_count (fun i -> Binding_immidiate (Reference_input i));
     circuit_outputs = List.init input_count (fun i -> i);
     circuit_with_wf_constr = (fun env sigma ->
@@ -341,6 +349,7 @@ let circuit_id (input_count : int) : circuit =
 let circuit_zero : circuit =
   {
     circuit_input_count = 0;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_immidiate Reference_zero];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.zero_with_wf");
@@ -349,6 +358,7 @@ let circuit_zero : circuit =
 let circuit_one : circuit =
   {
     circuit_input_count = 0;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_immidiate Reference_one];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.one_with_wf");
@@ -357,6 +367,7 @@ let circuit_one : circuit =
 let circuit_not : circuit =
   {
     circuit_input_count = 1;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_not (Reference_input 0)];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.not_with_wf");
@@ -365,6 +376,7 @@ let circuit_not : circuit =
 let circuit_and : circuit =
   {
     circuit_input_count = 2;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_and (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.and_with_wf");
@@ -373,6 +385,7 @@ let circuit_and : circuit =
 let circuit_or : circuit =
   {
     circuit_input_count = 2;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_or (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.or_with_wf");
@@ -381,6 +394,7 @@ let circuit_or : circuit =
 let circuit_xor : circuit =
   {
     circuit_input_count = 2;
+    circuit_wire_count = 1;
     circuit_wires = [Binding_xor (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
     circuit_with_wf_constr = (fun env sigma -> get_ref env "vcpu.circuit.xor_with_wf");
@@ -389,6 +403,7 @@ let circuit_xor : circuit =
 let circuit_switch (data_size : int) : circuit =
   {
     circuit_input_count = 1 + 2 * data_size;
+    circuit_wire_count = data_size;
     circuit_wires =
       List.init data_size (fun i ->
         Binding_if (Reference_input 0, Reference_input (1 + i), Reference_input (1 + data_size + i))
@@ -414,7 +429,7 @@ let constructor_arg_types_of_inductive (env : Environ.env) (sigma : Evd.evar_map
   |> List.map EConstr.of_constr
   |> List.map (fun branch_typ ->
     branch_typ
-    |> EConstr.decompose_prod_n_assum sigma (params |> List.length)
+    |> EConstr.decompose_prod_n_decls sigma (params |> List.length)
     |> snd
     |> EConstr.Vars.substl params
     |> EConstr.decompose_prod sigma
@@ -465,15 +480,16 @@ let red_flags (excluded : Names.Constant.t option) : CClosure.RedFlags.reds =
 
 exception Reduction_blocked of EConstr.t
 
-let rec verify_reduction_not_blocked (sigma : Evd.evar_map) (evars : EConstr.t list) (t : EConstr.t) : unit =
+let rec verify_reduction_not_blocked (env : Environ.env) (sigma : Evd.evar_map)
+    (evars : EConstr.t list) (t : EConstr.t) : unit =
   match EConstr.kind sigma t with
   | App (f, args) when EConstr.isFix sigma f ->
-    args |> Array.iter (verify_reduction_not_blocked sigma evars)
+    args |> Array.iter (verify_reduction_not_blocked env sigma evars)
   | Case (ci, _, _, _, _, scrutinee, _) ->
     if evars |> constr_list_mem sigma scrutinee &&
-      Names.GlobRef.equal (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "vcpu.vector.type")
+      Environ.QGlobRef.equal env (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "vcpu.vector.type")
     then raise (Reduction_blocked scrutinee)
-    else verify_reduction_not_blocked sigma evars scrutinee
+    else verify_reduction_not_blocked env sigma evars scrutinee
   | _ -> ()
 
 let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
@@ -530,7 +546,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
   let c_source = circuit_empty input_count in
   let (sigma, c_source') = try
-    verify_reduction_not_blocked sigma evars source;
+    verify_reduction_not_blocked env sigma evars source;
     match EConstr.kind sigma source with
 
     (* Evar *)
@@ -609,7 +625,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Match bool *)
     | Case (ci, _, _, (_, brs_type), _, scrutinee, brs) when
-        Names.GlobRef.equal (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "core.bool.type") ->
+        Environ.QGlobRef.equal env (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "core.bool.type") ->
       let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee input_evar_mapping in
       let (c_source'', br_false_output_wires) = convert_child sigma c_source' (brs.(1) |> snd) input_evar_mapping in
       let (c_source''', br_true_output_wires) = convert_child sigma c_source'' (brs.(0) |> snd) input_evar_mapping in
@@ -682,7 +698,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Vector *)
     | App (f, [|_; _; a3; _|]) when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.constructor") ->
-      verify_reduction_not_blocked sigma evars a3;
+      verify_reduction_not_blocked env sigma evars a3;
       let l = of_list_constr env sigma a3 in
       let (c_source', elements_output_wires) = l |> List.fold_left (fun (c_source', children_output_wires) element ->
         let (c_source'', element_output_wires) = convert_child sigma c_source' element input_evar_mapping in
@@ -783,7 +799,7 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
     |> ignore
   | None -> ());
   let reduced_input = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags (Some input_constant)) env sigma) applied_input in
-  let (args, source) = reduced_input |> EConstr.decompose_lam sigma in
+  let (args, source) = reduced_input |> EConstr.decompose_lambda sigma in
   let arg_types = args |> List.map snd in
   let (sigma, args_size, arg_evars, source_evar_mapping) =
     arg_types |> List.fold_left (fun (sigma, offset, arg_evars, source_evar_mapping) arg_typ ->

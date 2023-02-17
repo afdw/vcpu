@@ -99,7 +99,7 @@ Admitted.
 Next Obligation.
 Admitted.
 
-Definition test5 := @adder 32.
+Definition test5 := @adder 8.
 
 Compile test5.
 Compute test5_circuit.
