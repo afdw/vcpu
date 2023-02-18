@@ -21,6 +21,13 @@ Proof.
   intros n. rewrite <- Nnat.Nat2N.inj_succ. auto.
 Qed.
 
+Lemma succ_to_add :
+  forall n,
+  N.succ n = (1 + n)%N.
+Proof.
+  intros n. replace n with (0 + n)%N at 1 by auto. rewrite <- N.add_succ_l. auto.
+Qed.
+
 Infix "^^" := xorb (at level 40, left associativity) : bool_scope.
 
 Definition nandb b1 b2 := negb (b1 && b2).
@@ -54,6 +61,78 @@ Lemma andb_reflect :
   Bool.reflect (A /\ B) (x && y).
 Proof.
   intros A B x y H1 H2. destruct H1, H2; constructor; intuition auto.
+Qed.
+
+Definition length_bin {A} (l : list A) := N.of_nat (length l).
+
+Lemma length_bin_nil :
+  forall {A},
+  length_bin ([] : list A) = 0%N.
+Proof.
+  auto.
+Qed.
+
+Lemma length_bin_cons :
+  forall {A} (x : A) l,
+  length_bin (x :: l) = N.succ (length_bin l).
+Proof.
+  intros A x l. unfold length_bin. simpl. rewrite pos_of_succ_nat. auto.
+Qed.
+
+Lemma length_bin_app :
+  forall {A} (l1 l2 : list A),
+  length_bin (l1 ++ l2) = (length_bin l1 + length_bin l2)%N.
+Proof.
+  intros A l1 l2. unfold length_bin. rewrite List.app_length. lia.
+Qed.
+
+Lemma length_bin_list_map :
+  forall {A B} (f : A -> B) l,
+  length_bin (List.map f l) = length_bin l.
+Proof.
+  intros A B f l. unfold length_bin. rewrite List.map_length. auto.
+Qed.
+
+Definition list_nth_bin {A} i l (default : A) := List.nth (N.to_nat i) l default.
+
+Lemma list_nth_bin_succ_cons :
+  forall {A} i x l (default : A),
+  list_nth_bin (N.succ i) (x :: l) default = list_nth_bin i l default.
+Proof.
+  intros A i x l default. unfold list_nth_bin. rewrite Nnat.N2Nat.inj_succ. auto.
+Qed.
+
+Lemma list_nth_bin_list_map:
+  forall {A B} i (f : A -> B) l default,
+  list_nth_bin i (List.map f l) (f default) = f (list_nth_bin i l default).
+Proof.
+  intros A B i f l default. unfold list_nth_bin. apply List.map_nth.
+Qed.
+
+Lemma list_app_bin_nth_1 :
+  forall {A} i l1 l2 (default : A),
+  (i < length_bin l1)%N ->
+  list_nth_bin i (l1 ++ l2) default = list_nth_bin i l1 default.
+Proof.
+  unfold length_bin, list_nth_bin. intros A i l1 l2 default H. apply List.app_nth1. lia.
+Qed.
+
+Lemma list_app_bin_nth_2 :
+  forall {A} i l1 l2 (default : A),
+  (i >= length_bin l1)%N ->
+  list_nth_bin i (l1 ++ l2) default = list_nth_bin (i - length_bin l1) l2 default.
+Proof.
+  unfold length_bin, list_nth_bin. intros A i l1 l2 default H. rewrite List.app_nth2.
+  - f_equal. lia.
+  - lia.
+Qed.
+
+Lemma list_app_bin_nth_2_add :
+  forall {A} i l1 l2 (default : A),
+  list_nth_bin (length_bin l1 + i) (l1 ++ l2) default = list_nth_bin i l2 default.
+Proof.
+  unfold length_bin, list_nth_bin. intros A i l1 l2 default. rewrite Nnat.N2Nat.inj_add. rewrite Nnat.Nat2N.id.
+  apply List.app_nth2_plus.
 Qed.
 
 Fixpoint list_forall {A} f (l : list A) :=
@@ -102,21 +181,6 @@ Proof.
   - simpl. intuition auto.
 Qed.
 
-Lemma list_forall_list_seq :
-  forall f s n,
-  list_forall f (List.seq s n) <-> forall i, i < n -> f (s + i).
-Proof.
-  intros f s n. generalize dependent s. induction n as [ | n' IH]; intros s.
-  - simpl. intuition lia.
-  - simpl. rewrite IH. split.
-    + intros (H1 & H2). intros i H3. destruct i as [ | i'].
-      * rewrite PeanoNat.Nat.add_0_r. auto.
-      * rewrite PeanoNat.Nat.add_succ_r. apply H2. lia.
-    + intros H1. split.
-      * specialize (H1 0 ltac:(lia)). rewrite PeanoNat.Nat.add_0_r in H1. auto.
-      * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite PeanoNat.Nat.add_succ_r in H1. auto.
-Qed.
-
 Lemma list_forall_list_nth :
   forall {A} f l i (default : A),
   list_forall f l ->
@@ -128,6 +192,17 @@ Proof.
   - destruct H1 as (H3 & H4). destruct i as [ | i'].
     + auto.
     + specialize (IH H4 i'). simpl in H2. apply IH. lia.
+Qed.
+
+Lemma list_forall_list_nth_bin :
+  forall {A} f l i (default : A),
+  list_forall f l ->
+  (i < length_bin l)%N ->
+  f (list_nth_bin i l default).
+Proof.
+  unfold length_bin, list_nth_bin. intros A f l i default H1 H2. apply list_forall_list_nth.
+  - auto.
+  - lia.
 Qed.
 
 Fixpoint list_forall_b {A} f (l : list A) :=
@@ -348,16 +423,16 @@ Qed.
 Lemma list_forall_i_bin_aux_app :
   forall {A} f s (l1 l2 : list A),
   list_forall_i_bin_aux f s (l1 ++ l2) <->
-    list_forall_i_bin_aux f s l1 /\ list_forall_i_bin_aux f (s + N.of_nat (length l1)) l2.
+    list_forall_i_bin_aux f s l1 /\ list_forall_i_bin_aux f (s + length_bin l1) l2.
 Proof.
   intros A f s l1 l2. generalize dependent s. induction l1 as [ | x l1' IH]; intros s.
   - rewrite N.add_comm. simpl. intuition auto.
-  - specialize (IH (N.succ s)). simpl. rewrite pos_of_succ_nat. rewrite <- N.add_succ_comm. intuition auto.
+  - specialize (IH (N.succ s)). rewrite length_bin_cons. simpl. rewrite <- N.add_succ_comm. intuition auto.
 Qed.
 
 Lemma list_forall_i_bin_app :
   forall {A} f (l1 l2 : list A),
-  list_forall_i_bin f (l1 ++ l2) <-> list_forall_i_bin f l1 /\ list_forall_i_bin_aux f (N.of_nat (length l1)) l2.
+  list_forall_i_bin f (l1 ++ l2) <-> list_forall_i_bin f l1 /\ list_forall_i_bin_aux f (length_bin l1) l2.
 Proof.
   unfold list_forall_i_bin. intros A f l1 l2. apply (list_forall_i_bin_aux_app f 0 l1 l2).
 Qed.
@@ -464,15 +539,6 @@ Proof.
     + simpl. rewrite <- IH. rewrite <- List.app_assoc. auto.
 Qed.
 
-Lemma list_fold_left_list_seq_shift :
-  forall {A} f s t n (x : A),
-  List.fold_left f (List.seq (s + t) n) x = List.fold_left (fun y z => f y (t + z)) (List.seq s n) x.
-Proof.
-  intros A f s t n. generalize dependent s. induction n as [ | n' IH]; intros s x.
-  - auto.
-  - specialize (IH (S s) (f x (s + t))). simpl. rewrite (PeanoNat.Nat.add_comm t s). simpl in IH. apply IH.
-Qed.
-
 Lemma list_fold_left_list_map :
   forall {A B C} f (g : B -> C) l (x : A),
   List.fold_left f (List.map g l) x = List.fold_left (fun y z => f y (g z)) l x.
@@ -501,6 +567,41 @@ Proof.
   intros A B f1 f2 l H. induction l as [ | z l' IH].
   - auto.
   - simpl in H. simpl. rewrite (proj1 H). f_equal. apply IH. intuition auto.
+Qed.
+
+Lemma list_seq_to_simple :
+  forall s n,
+  List.seq s n = List.map (fun i => s + i) (List.seq 0 n).
+Proof.
+  intros s n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - auto.
+  - simpl. rewrite IH. rewrite <- List.seq_shift. rewrite List.map_map. f_equal.
+    + lia.
+    + apply List.map_ext. lia.
+Qed.
+
+Lemma list_forall_list_seq :
+  forall f s n,
+  list_forall f (List.seq s n) <-> forall i, i < n -> f (s + i).
+Proof.
+  intros f s n. generalize dependent s. induction n as [ | n' IH]; intros s.
+  - simpl. intuition lia.
+  - simpl. rewrite IH. split.
+    + intros (H1 & H2). intros i H3. destruct i as [ | i'].
+      * rewrite PeanoNat.Nat.add_0_r. auto.
+      * rewrite PeanoNat.Nat.add_succ_r. apply H2. lia.
+    + intros H1. split.
+      * specialize (H1 0 ltac:(lia)). rewrite PeanoNat.Nat.add_0_r in H1. auto.
+      * intros i H2. specialize (H1 (S i) ltac:(lia)). rewrite PeanoNat.Nat.add_succ_r in H1. auto.
+Qed.
+
+Lemma list_fold_left_list_seq_shift :
+  forall {A} f s t n (x : A),
+  List.fold_left f (List.seq (s + t) n) x = List.fold_left (fun y z => f y (t + z)) (List.seq s n) x.
+Proof.
+  intros A f s t n. generalize dependent s. induction n as [ | n' IH]; intros s x.
+  - auto.
+  - specialize (IH (S s) (f x (s + t))). simpl. rewrite (PeanoNat.Nat.add_comm t s). simpl in IH. apply IH.
 Qed.
 
 Fixpoint list_init_aux {A} f s n : list A :=
@@ -603,6 +704,77 @@ Proof.
   intros A B f g n x. apply list_fold_left_list_init_aux.
 Qed.
 
+Definition list_init_bin {A} f n : list A :=
+  list_init (fun i => f (N.of_nat i)) (N.to_nat n).
+
+Definition list_seq_bin s n :=
+  List.map N.of_nat (List.seq (N.to_nat s) (N.to_nat n)).
+
+Lemma list_seq_bin_succ :
+  forall s n,
+  list_seq_bin s (N.succ n) = s :: list_seq_bin (N.succ s) n.
+Proof.
+  intros s n. unfold list_seq_bin. rewrite Nnat.N2Nat.inj_succ. simpl. repeat f_equal; lia.
+Qed.
+
+Lemma length_list_seq_bin :
+  forall s n,
+  length_bin (list_seq_bin s n) = n.
+Proof.
+  intros s n. unfold length_bin, list_seq_bin. rewrite List.map_length. rewrite List.seq_length. lia.
+Qed.
+
+Lemma list_seq_bin_to_simple :
+  forall s n,
+  list_seq_bin s n = List.map (fun i => (s + i)%N) (list_seq_bin 0 n).
+Proof.
+  intros s n. unfold list_seq_bin. rewrite list_seq_to_simple. rewrite ? List.map_map. apply List.map_ext. lia.
+Qed.
+
+Lemma list_forall_list_seq_bin :
+  forall f s n,
+  list_forall f (list_seq_bin s n) <-> forall i, (i < n)%N -> f (s + i)%N.
+Proof.
+  intros f s n. unfold list_seq_bin. rewrite list_forall_list_map. rewrite list_forall_list_seq.
+  split; intros H1 i H2.
+  - specialize (H1 (N.to_nat i) ltac:(lia)). rewrite Nnat.Nat2N.inj_add, ? Nnat.N2Nat.id in H1. auto.
+  - specialize (H1 (N.of_nat i) ltac:(lia)). rewrite Nnat.Nat2N.inj_add, Nnat.N2Nat.id. auto.
+Qed.
+
+Lemma list_fold_left_list_seq_bin_shift :
+  forall {A} f s t n (x : A),
+  List.fold_left f (list_seq_bin (s + t)%N n) x = List.fold_left (fun y z => f y (t + z)%N) (list_seq_bin s n) x.
+Proof.
+  intros A f s t n x. unfold list_seq_bin. rewrite list_fold_left_list_map. rewrite Nnat.N2Nat.inj_add.
+  rewrite list_fold_left_list_seq_shift. rewrite list_fold_left_list_map. apply list_fold_left_ext.
+  intros y z. f_equal. lia.
+Qed.
+
+Lemma length_bin_list_init_bin :
+  forall {A} (f : _ -> A) n,
+  length_bin (list_init_bin f n) = n.
+Proof.
+  intros A f n. unfold length_bin, list_init_bin.  rewrite length_list_init. lia.
+Qed.
+
+Lemma list_forall_i_bin_list_init_bin :
+  forall {A} f (g : _ -> A) n,
+  list_forall_i_bin f (list_init_bin g n) <-> forall i, (i < n)%N -> f i (g i).
+Proof.
+  intros A f g n. unfold list_init_bin. rewrite list_forall_i_bin_equiv. rewrite list_forall_i_list_init.
+  split; intros H1 i H2.
+  - specialize (H1 (N.to_nat i) ltac:(lia)). rewrite Nnat.N2Nat.id in H1. auto.
+  - specialize (H1 (N.of_nat i) ltac:(lia)). auto.
+Qed.
+
+Lemma list_fold_left_list_init_bin :
+  forall {A B} f (g : _ -> B) n (x : A),
+  List.fold_left f (list_init_bin g n) x = List.fold_left (fun y z => f y (g z)) (list_seq_bin 0 n) x.
+Proof.
+  intros A B f g n x. unfold list_init_bin. rewrite list_fold_left_list_init.
+  unfold list_seq_bin. rewrite list_fold_left_list_map. auto.
+Qed.
+
 Definition list_select {A} values indices (default : A) :=
   List.map (fun i => List.nth i values default) indices.
 
@@ -644,6 +816,24 @@ Qed.
 Definition list_select_bin {A} values indices (default : A) :=
   List.map (fun i => List.nth (N.to_nat i) values default) indices.
 
+Lemma length_bin_list_select_bin :
+  forall {A} values indices (default : A),
+  length_bin (list_select_bin values indices default) = length_bin indices.
+Proof.
+  intros A values indices default. unfold list_select_bin, length_bin. f_equal. apply List.map_length.
+Qed.
+
+Lemma list_select_bin_all :
+  forall {A} values (default : A),
+  list_select_bin values (list_seq_bin 0 (length_bin values)) default = values.
+Proof.
+  intros A values default. unfold list_select_bin, list_seq_bin.
+  rewrite List.map_map. unfold length_bin. rewrite Nnat.Nat2N.id. induction values as [ | x values' IH].
+  - auto.
+  - simpl. rewrite <- List.seq_shift. rewrite List.map_map. rewrite <- IH at 2. f_equal.
+    apply List.map_ext. intros i. rewrite ? Nnat.Nat2N.id. auto.
+Qed.
+
 Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=
   match l1, l2 with
   | y :: l1', z :: l2' => list_fold_left2 f l1' l2' (f x y z)
@@ -662,10 +852,22 @@ Fixpoint nat_list_assoc {A} n l (default : A) :=
   | (m, x) :: l' => if Nat.eqb m n then x else nat_list_assoc n l' default
   end.
 
+Fixpoint binnat_list_assoc {A} n l (default : A) :=
+  match l with
+  | [] => default
+  | (m, x) :: l' => if (m =? n)%N then x else binnat_list_assoc n l' default
+  end.
+
 Fixpoint nat_list_mem n l :=
   match l with
   | [] => false
   | m :: l' => Nat.eqb m n || nat_list_mem n l'
+  end.
+
+Fixpoint binnat_list_mem n l :=
+  match l with
+  | [] => false
+  | m :: l' => (m =? n)%N || binnat_list_mem n l'
   end.
 
 Fixpoint list_truncate {A} n l (default : A) :=

@@ -84,10 +84,10 @@ Compute circuit_compute test4_circuit [true; true; false; false]. (* [false; fal
 
 #[program] Definition adder {n} (bv : bitvec (2 * n)) : bitvec n :=
   let bv1 : bitvec n := {|
-    vector_list := list_select (vector_list bv) (List.seq 0 (N.to_nat n)) false
+    vector_list := list_select_bin (vector_list bv) (list_seq_bin 0 n) false
   |} in
   let bv2 : bitvec n := {|
-    vector_list := list_select (vector_list bv) (List.seq (N.to_nat n) (N.to_nat n)) false
+    vector_list := list_select_bin (vector_list bv) (list_seq_bin n n) false
   |} in
   {|
     vector_list := list_add_aux (vector_list bv1) (vector_list bv2) [] false;
@@ -172,7 +172,7 @@ Next Obligation.
 Admitted.
 
 #[program] Definition shift_left_one {n} (bv : bitvec n) : bitvec n := {|
-  vector_list := false :: list_select (vector_list bv) (List.seq 0 (pred (N.to_nat n))) false;
+  vector_list := false :: list_select_bin (vector_list bv) (list_seq_bin 0 (N.pred n)) false;
 |}.
 Next Obligation.
 Admitted.
@@ -182,7 +182,7 @@ Compile test8.
 Compute test8_circuit.
 
 #[program] Definition zero {n} : bitvec n := {|
-  vector_list := list_init (fun _ => false) (N.to_nat n);
+  vector_list := list_init_bin (fun _ => false) n;
 |}.
 Next Obligation.
 Admitted.
@@ -198,10 +198,10 @@ Definition mul {n} (bv1 bv2 : bitvec n) : bitvec n :=
 
 #[program] Definition muler {n} (bv : bitvec (2 * n)) : bitvec n :=
   let bv1 : bitvec n := {|
-    vector_list := list_select (vector_list bv) (List.seq 0 (N.to_nat n)) false
+    vector_list := list_select_bin (vector_list bv) (list_seq_bin 0 n) false
   |} in
   let bv2 : bitvec n := {|
-    vector_list := list_select (vector_list bv) (List.seq (N.to_nat n) (N.to_nat n)) false
+    vector_list := list_select_bin (vector_list bv) (list_seq_bin n n) false
   |} in
   mul bv1 bv2.
 Next Obligation.
@@ -227,9 +227,12 @@ Compile add of 32%N as add_32.
 Compile mul of 32%N as mul_32.
 
 Definition mul_32_circuit' := Eval vm_compute in mul_32_circuit.
+Set NativeCompute Timing.
+Definition mul_32_circuit'' := Eval native_compute in circuit_simplify mul_32_circuit'.
+Unset NativeCompute Timing.
 
 Set NativeCompute Timing.
-Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit'
+Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit''
   (fixed_bitlist_of_binnat 32 3543 ++ fixed_bitlist_of_binnat 32 1231)).
 Unset NativeCompute Timing.
 *)
