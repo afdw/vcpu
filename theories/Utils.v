@@ -93,6 +93,13 @@ Proof.
   intros A B f l. unfold length_bin. rewrite List.map_length. auto.
 Qed.
 
+Lemma length_bin_list_combine :
+  forall {A} (l1 l2 : list A),
+  length_bin (List.combine l1 l2) = N.min (length_bin l1) (length_bin l2).
+Proof.
+  intros A l1 l2. unfold length_bin. rewrite List.combine_length. lia.
+Qed.
+
 Definition list_nth_bin {A} i l (default : A) := List.nth (N.to_nat i) l default.
 
 Lemma list_nth_bin_succ_cons :

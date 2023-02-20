@@ -15,10 +15,10 @@ Unset Program Cases.
 |} in v.
 Next Obligation.
   intros bv. specialize (vector_wf bv) as H. destruct (vector_list bv) as [ | b l'].
-  - simpl in H. congruence.
+  - cbv in H. congruence.
   - destruct l' as [ | b' l''].
     + auto.
-    + simpl in H. lia.
+    + rewrite ? length_bin_cons in H. lia.
 Qed.
 
 Set Program Cases.
@@ -29,7 +29,7 @@ Compute circuit_outputs test1_circuit.
 Compute circuit_compute test1_circuit [false]. (* [false; false; false; true; true] *)
 Compute circuit_compute test1_circuit [true]. (* [true; true; false; true; false] *)
 
-Definition test2 := @vector_and 4 {| vector_list := [true; false; true; false]; vector_wf := eq_refl |}.
+Definition test2 := @vector_and 4 [|true; false; true; false|].
 Compile test2.
 Compute fun a b c d => circuit_compute test2_circuit [a; b; c; d].
 Compute circuit_compute test2_circuit [false; false; false; false]. (* [false; false; false; false] *)
@@ -73,7 +73,7 @@ Eval cbv beta delta iota in fun a1 a2 a3 a4 b1 b2 b3 b4 =>
 Next Obligation.
 Admitted.
 
-Definition test4 := @vector_add 4 {| vector_list := [true; false; true; false]; vector_wf := eq_refl |}.
+Definition test4 := @vector_add 4 [|true; false; true; false|].
 
 Eval cbv beta delta iota in test4.
 
@@ -149,14 +149,14 @@ Unset Program Cases.
 |}.
 Next Obligation.
   intros bv. specialize (vector_wf bv) as H. destruct (vector_list bv) as [ | b l'].
-  - simpl in H. congruence.
+  - cbv in H. congruence.
   - destruct l' as [ | b' l''].
-    + simpl in H. congruence.
+    + cbv in H. congruence.
     + simpl in H. destruct l'' as [ | b'' l'''].
-      * simpl in H. congruence.
+      * cbv in H. congruence.
       * simpl in H. destruct l''' as [ | b''' l''''].
         -- auto.
-        -- simpl in H. lia.
+        -- rewrite ? length_bin_cons in H. lia.
 Qed.
 
 Set Program Cases.
@@ -236,3 +236,11 @@ Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit''
   (fixed_bitlist_of_binnat 32 3543 ++ fixed_bitlist_of_binnat 32 1231)).
 Unset NativeCompute Timing.
 *)
+
+Serialize (bitvec 5) as serialize_bitvec_5.
+Compute vector_list (serialize_bitvec_5 [|true; false; true; false; false|]).
+Serialize comparison as serialize_comparison.
+Serialize (bool * bool) as serialize_pair_bool_bool.
+Compute vector_list (serialize_pair_bool_bool (true, false)).
+Serialize (vector (option comparison) 2 * bool) as serialize_pair_vector_option_comparison_2_bool.
+Serialize (bitvec 100) as serialize_bitvec_100.

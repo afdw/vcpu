@@ -4,13 +4,17 @@ DECLARE PLUGIN "vcpu-plugin.plugin"
   open Stdarg
 }
 
-VERNAC COMMAND EXTEND MyDefine CLASSIFIED AS SIDEFF
+VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
+| [ "Serialize" constr(input_typ) "as" ident(output_id) ] ->
+  {
+    Compiler.entry_serialize input_typ output_id
+  }
 | [ "Compile" ident(input_id) ] ->
   {
-    Compiler.compile input_id [] None
+    Compiler.entry_compile input_id [] None
   }
 | [ "Compile" ident(input_id) "of" constr_list(param_constr_exprs) "as" ident(output_id) ] ->
   {
-    Compiler.compile input_id param_constr_exprs (Some output_id)
+    Compiler.entry_compile input_id param_constr_exprs (Some output_id)
   }
 END

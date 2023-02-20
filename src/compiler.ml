@@ -113,6 +113,9 @@ let prove_nat_lt (env : Environ.env) (n : int) (m : int) : EConstr.t =
     EConstr.mkApp (get_ref env "num.nat.lt", [|to_nat_constr env n; to_nat_constr env m|])
   )
 
+let mk_vector_type (env : Environ.env) (element_typ : EConstr.t) (length : int) : EConstr.t =
+  EConstr.mkApp (get_ref env "vcpu.vector.type", [|element_typ; to_binnat_constr env length|])
+
 let dest_vector_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : EConstr.t * int =
   match EConstr.kind sigma typ with
   | App (f, [|a1; a2|]) when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
@@ -424,7 +427,8 @@ let circuit_const (data : bool list) : circuit =
 
 let constructor_arg_types_of_inductive (env : Environ.env) (sigma : Evd.evar_map)
     (ind : Names.inductive) (params : EConstr.t list) : EConstr.t list list =
-  (Inductive.lookup_mind_specif env ind |> snd).mind_user_lc
+  let (_, one_inductive_body) = Inductive.lookup_mind_specif env ind in
+  one_inductive_body.mind_user_lc
   |> Array.to_list
   |> List.map EConstr.of_constr
   |> List.map (fun branch_typ ->
@@ -437,13 +441,21 @@ let constructor_arg_types_of_inductive (env : Environ.env) (sigma : Evd.evar_map
     |> List.map snd
   )
 
+let serialized : (EConstr.t * Names.Constant.t) list ref =
+  Summary.ref ~name:"serialized" []
+
+let compiled : ((Names.Constant.t * EConstr.t list) * circuit) list ref =
+  Summary.ref ~name:"compiled" []
+
 let rec size_of_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : int =
   let f, args = EConstr.decompose_app sigma typ in
   match EConstr.kind sigma f, args with
-  | _, _ when EConstr.eq_constr sigma typ (get_ref env "core.bool.type") -> 1
-  | _, [a1; a2] when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
-    (a1 |> size_of_type env sigma) *
-    (a2 |> Cbv.cbv_norm (Cbv.create_cbv_infos CClosure.all env sigma) |> of_binnat_constr env sigma)
+  | _, _ when EConstr.eq_constr sigma typ (get_ref env "core.bool.type") ->
+    1
+  | _, _ when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
+    let (element_typ, length) = dest_vector_type env sigma typ in
+    let element_typ_size = element_typ |> size_of_type env sigma in
+    element_typ_size * length
   | Ind (ind, _), params ->
     let constructor_arg_types = constructor_arg_types_of_inductive env sigma ind params in
     List.length constructor_arg_types +
@@ -458,8 +470,134 @@ let rec size_of_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t
       )
   | _ -> CErrors.user_err Pp.(str "Unknown type:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
 
-let compiled : ((Names.Constant.t * EConstr.t list) * circuit) list ref =
-  Summary.ref ~name:"compiled" []
+let rec serialize (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : EConstr.t =
+  if !serialized |> List.map fst |> constr_list_mem sigma typ then
+    EConstr.mkConst (!serialized |> constr_list_assoc sigma typ)
+  else
+    let typ_size = size_of_type env sigma typ in
+    let body =
+      let f, args = EConstr.decompose_app sigma typ in
+      match EConstr.kind sigma f, args with
+      | _, _ when EConstr.eq_constr sigma typ (get_ref env "core.bool.type") ->
+        to_vector env (get_ref env "core.bool.type") [EConstr.mkRel 1]
+      | _, _ when EConstr.eq_constr sigma f (get_ref env "vcpu.vector.type") ->
+        let (element_typ, length) = dest_vector_type env sigma typ in
+        let element_typ_size = element_typ |> size_of_type env sigma in
+        List.init length (fun i -> i) |> List.fold_left (fun t i ->
+          EConstr.mkLetIn (
+            Context.anonR,
+            EConstr.mkApp (
+              get_ref env "vcpu.vector.dest",
+              [|
+                element_typ;
+                to_binnat_constr env i;
+                if i = length - 1 then
+                  EConstr.mkRel 1
+                else
+                  EConstr.mkApp (
+                    get_ref env "core.prod.proj2",
+                    [|element_typ; mk_vector_type env element_typ (succ i); EConstr.mkRel 1|]
+                  );
+              |]
+            ),
+            EConstr.mkApp (
+              get_ref env "core.prod.type",
+              [|element_typ; mk_vector_type env element_typ i|]
+            ),
+            EConstr.mkApp (
+              get_ref env "vcpu.vector.app",
+              [|
+                get_ref env "core.bool.type";
+                to_binnat_constr env element_typ_size;
+                to_binnat_constr env (element_typ_size * i);
+                EConstr.mkApp (
+                  serialize env sigma element_typ,
+                  [|
+                    EConstr.mkApp (
+                      get_ref env "core.prod.proj1",
+                      [|element_typ; mk_vector_type env element_typ i; EConstr.mkRel 1|]
+                    );
+                  |]
+                );
+                t;
+              |]
+            )
+          )
+        ) (to_vector env (get_ref env "core.bool.type") [])
+      | Ind (ind, u), params ->
+        let constructor_arg_types = constructor_arg_types_of_inductive env sigma ind params in
+        let constructor_count = constructor_arg_types |> List.length in
+        EConstr.mkCase (
+          Inductiveops.make_case_info env ind Sorts.Relevant Constr.RegularStyle,
+          u,
+          params |> Array.of_list,
+          (
+            [|Context.anonR|],
+            mk_vector_type env (get_ref env "core.bool.type") typ_size
+          ),
+          Constr.NoInvert,
+          EConstr.mkRel 1,
+          constructor_arg_types |> List.mapi (fun contructor_index arg_types ->
+            let arg_count = arg_types |> List.length in
+            let args_size =
+              arg_types
+              |> List.map (size_of_type env sigma)
+              |> List.fold_left (+) 0 in
+            let max_args_size =
+              constructor_arg_types
+              |> List.map (fun arg_types ->
+                arg_types
+                |> List.map (size_of_type env sigma)
+                |> List.fold_left (+) 0
+              )
+              |> List.fold_left max 0 in
+            let padding_size = max_args_size - args_size in
+            (
+              Array.init arg_count (fun _ -> Context.anonR),
+              EConstr.mkApp (
+                get_ref env "vcpu.vector.app",
+                [|
+                  get_ref env "core.bool.type";
+                  to_binnat_constr env constructor_count;
+                  to_binnat_constr env max_args_size;
+                  to_vector env (get_ref env "core.bool.type")
+                    (List.init constructor_count (fun i -> to_bool_constr env (i = contructor_index)));
+                  EConstr.mkApp (
+                    get_ref env "vcpu.vector.app",
+                    [|
+                      get_ref env "core.bool.type";
+                      to_binnat_constr env args_size;
+                      to_binnat_constr env padding_size;
+                      arg_types |> List.rev |> List.fold_left (fun ((i, t_size), t) arg_type ->
+                        let arg_type_size = arg_type |> size_of_type env sigma in
+                        (
+                          (succ i, arg_type_size),
+                          EConstr.mkApp (
+                            get_ref env "vcpu.vector.app",
+                            [|
+                              get_ref env "core.bool.type";
+                              to_binnat_constr env arg_type_size;
+                              to_binnat_constr env t_size;
+                              EConstr.mkApp (
+                                serialize env sigma arg_type,
+                                [|EConstr.mkRel (1 + i)|]
+                              );
+                              t;
+                            |]
+                          )
+                        )
+                      ) ((0, 0), to_vector env (get_ref env "core.bool.type") []) |> snd;
+                      to_vector env (get_ref env "core.bool.type")
+                        (List.init padding_size (fun _ -> to_bool_constr env false));
+                    |]
+                  );
+                |]
+              )
+            )
+          ) |> Array.of_list
+        )
+      | _ -> CErrors.user_err Pp.(str "Unknown type:" ++ spc () ++ Printer.pr_econstr_env env sigma typ) in
+    EConstr.mkLambda (Context.anonR, typ, body)
 
 let red_flags (excluded : Names.Constant.t option) : CClosure.RedFlags.reds =
   let builtin = ["core.bool.negb"; "core.bool.andb"; "core.bool.orb"; "core.bool.xorb"] in
@@ -492,9 +630,9 @@ let rec verify_reduction_not_blocked (env : Environ.env) (sigma : Evd.evar_map)
     else verify_reduction_not_blocked env sigma evars scrutinee
   | _ -> ()
 
-let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
+let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
     : (EConstr.t * int list) list * circuit =
-  (* Feedback.msg_notice Pp.(str "convert" ++ spc () ++ Printer.pr_econstr_env env sigma source); *)
+  (* Feedback.msg_info Pp.(str "compile" ++ spc () ++ Printer.pr_econstr_env env sigma source); *)
 
   (* Replace vector of let in with let in of vector and vector of match with match of vector *)
   let source =
@@ -535,7 +673,7 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
   let convert_child sigma c_source child child_evar_mapping =
     let (child_input_mapping, c_child) =
-      convert env sigma (child_evar_mapping |> List.map fst) child in
+      compile env sigma (child_evar_mapping |> List.map fst) child in
     let child_input_references = List.init c_child.circuit_input_count (fun i ->
       let (evar, child_input_wires) =
         child_input_mapping |> List.find (fun (_, child_input_wires) -> child_input_wires |> List.mem i) in
@@ -752,19 +890,20 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
   (* Reduction was blocked, replace a vector variable by sample contents and try again *)
   | Reduction_blocked reduction_blocking_evar ->
-    let (typ, length) = dest_vector_type env sigma (Retyping.get_type_of env sigma reduction_blocking_evar) in
-    let typ_size = size_of_type env sigma typ in
-    let (sigma, vector_evars) = new_evars env sigma typ length in
+    let (element_typ, length) = dest_vector_type env sigma (Retyping.get_type_of env sigma reduction_blocking_evar) in
+    let element_typ_size = size_of_type env sigma element_typ in
+    let (sigma, vector_evars) = new_evars env sigma element_typ length in
     let vector_evar_mapping =
       vector_evars |> List.mapi (fun i vector_evar ->
         (
           vector_evar,
           list_select
             (input_evar_mapping |> constr_list_assoc sigma reduction_blocking_evar)
-            (List.init typ_size (fun j -> typ_size * i + j))
+            (List.init element_typ_size (fun j -> element_typ_size * i + j))
         )
       ) in
-    let substituted = Termops.replace_term sigma reduction_blocking_evar (to_vector env typ vector_evars) source in
+    let substituted =
+      Termops.replace_term sigma reduction_blocking_evar (to_vector env element_typ vector_evars) source in
     let reduced_substituted = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags None) env sigma) substituted in
     let (c_source', substituted_output_wires) =
       convert_child sigma c_source reduced_substituted
@@ -772,10 +911,37 @@ let rec convert (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
     let c_source'' = circuit_set_outputs c_source' substituted_output_wires in
     (sigma, c_source'') in
 
-  (* Feedback.msg_notice Pp.(str "return" ++ spc () ++ Printer.pr_econstr_env env sigma c_source'.circuit_constr); *)
+  (* Feedback.msg_info Pp.(str "return" ++ spc () ++
+    Printer.pr_econstr_env env sigma (c_source'.circuit_with_wf_constr env sigma)); *)
   (input_mapping, c_source')
 
-let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr list)
+let entry_serialize (input_typ_constr_expr : Constrexpr.constr_expr) (output_id : Names.Id.t) : unit =
+  let env = Global.env () in
+  ref_cache := CString.Map.empty;
+  let sigma = Evd.from_env env in
+  let (sigma, input_typ) = Constrintern.interp_type_evars env sigma input_typ_constr_expr in
+  let input_typ_size = size_of_type env sigma input_typ in
+  let serialize_constant =
+    Declare.declare_definition
+      ~info:(Declare.Info.make ())
+      ~cinfo:(
+        Declare.CInfo.make
+        ~name:output_id
+        ~typ:(Some (
+          EConstr.mkArrow
+            input_typ
+            Sorts.Relevant
+            (mk_vector_type env (get_ref env "core.bool.type") input_typ_size)
+        ))
+        ()
+      )
+      ~opaque:false
+      ~body:(serialize env sigma input_typ)
+      sigma
+    |> dest_const_ref in
+  serialized := !serialized @ [(input_typ, serialize_constant)]
+
+let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr list)
     (output_id : Names.Id.t option) : unit =
   let env = Global.env () in
   ref_cache := CString.Map.empty;
@@ -815,9 +981,9 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
         )]
       )
     ) (sigma, 0, [], []) in
-  Feedback.msg_notice (Pp.str "Start");
+  Feedback.msg_info (Pp.str "Start");
   let (source_input_mapping, c_source) =
-    convert env sigma arg_evars (source |> EConstr.Vars.substl (arg_evars |> List.rev)) in
+    compile env sigma arg_evars (source |> EConstr.Vars.substl (arg_evars |> List.rev)) in
   let c_result = circuit_empty args_size in
   let source_input_references = List.init c_source.circuit_input_count (fun i ->
     let (evar, source_input_wires) =
@@ -826,9 +992,9 @@ let compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.constr_expr
   ) in
   let (c_result', source_output_wires) = circuit_add c_result c_source source_input_references in
   let c_result'' = circuit_set_outputs c_result' source_output_wires in
-  Feedback.msg_notice Pp.(str "Wire count:" ++ spc() ++ int (c_result''.circuit_wires |> List.length));
+  Feedback.msg_info Pp.(str "Wire count:" ++ spc () ++ int (c_result''.circuit_wires |> List.length));
   let result_circuit_with_wf_constr = c_result''.circuit_with_wf_constr env sigma in
-  Feedback.msg_notice (Pp.str "Circuit constr");
+  Feedback.msg_info (Pp.str "Circuit constr");
   let circuit_with_wf_constant =
     Declare.declare_definition
       ~info:(Declare.Info.make ())
