@@ -158,7 +158,7 @@ let to_reference_constr (env : Environ.env) (r : reference) : EConstr.t =
     EConstr.mkApp (get_ref env "vcpu.reference.Wire", [|i |> to_binnat_constr env|])
 
 type binding =
-  | Binding_immidiate of reference
+  | Binding_immediate of reference
   | Binding_not of reference
   | Binding_and of reference * reference
   | Binding_or of reference * reference
@@ -167,8 +167,8 @@ type binding =
 
 let to_binding_constr (env : Environ.env) (b : binding) : EConstr.t =
   match b with
-  | Binding_immidiate r ->
-    EConstr.mkApp (get_ref env "vcpu.binding.Immidiate", [|r |> to_reference_constr env|])
+  | Binding_immediate r ->
+    EConstr.mkApp (get_ref env "vcpu.binding.Immediate", [|r |> to_reference_constr env|])
   | Binding_not r ->
     EConstr.mkApp (get_ref env "vcpu.binding.Not", [|r |> to_reference_constr env|])
   | Binding_and (r1, r2) ->
@@ -200,7 +200,7 @@ let reference_wf (input_count : int) (wire_count : int) (r : reference) : bool =
 
 let binding_wf (input_count : int) (wire_count : int) (b : binding) : bool =
   match b with
-  | Binding_immidiate r -> reference_wf input_count wire_count r
+  | Binding_immediate r -> reference_wf input_count wire_count r
   | Binding_not r -> reference_wf input_count wire_count r
   | Binding_and (r1, r2) ->
     reference_wf input_count wire_count r1 &&
@@ -237,7 +237,7 @@ let reference_compute (inputs : bool list) (intermediates : bool list) (r : refe
 
 let binding_compute (inputs : bool list) (intermediates : bool list) (b : binding) : bool =
   match b with
-  | Binding_immidiate r -> reference_compute inputs intermediates r
+  | Binding_immediate r -> reference_compute inputs intermediates r
   | Binding_not r -> not (reference_compute inputs intermediates r)
   | Binding_and (r1, r2) ->
     reference_compute inputs intermediates r1 && reference_compute inputs intermediates r2
@@ -292,7 +292,7 @@ let circuit_add_translate_reference (parent_wire_count : int) (input_references 
 let circuit_add_translate_binding (parent_wire_count : int) (input_references : reference list) (b : binding) : binding =
   let translate_reference = circuit_add_translate_reference parent_wire_count input_references in
   match b with
-  | Binding_immidiate r -> Binding_immidiate (translate_reference r)
+  | Binding_immediate r -> Binding_immediate (translate_reference r)
   | Binding_not r -> Binding_not (translate_reference r)
   | Binding_and (r1, r2) -> Binding_and (translate_reference r1, translate_reference r2)
   | Binding_or (r1, r2) -> Binding_or (translate_reference r1, translate_reference r2)
@@ -349,7 +349,7 @@ let circuit_id (env : Environ.env) (input_count : int) : circuit =
   {
     circuit_input_count = input_count;
     circuit_wire_count = input_count;
-    circuit_wires = List.init input_count (fun i -> Binding_immidiate (Reference_input i));
+    circuit_wires = List.init input_count (fun i -> Binding_immediate (Reference_input i));
     circuit_outputs = List.init input_count (fun i -> i);
     circuit_with_wf_and_spec_constr =
       EConstr.mkApp (get_ref env "vcpu.circuit.id_with_wf_and_spec", [|to_binnat_constr env input_count|]);
@@ -359,7 +359,7 @@ let circuit_zero (env : Environ.env) : circuit =
   {
     circuit_input_count = 0;
     circuit_wire_count = 1;
-    circuit_wires = [Binding_immidiate Reference_zero];
+    circuit_wires = [Binding_immediate Reference_zero];
     circuit_outputs = [0];
     circuit_with_wf_and_spec_constr = get_ref env "vcpu.circuit.zero_with_wf_and_spec";
   }
@@ -368,7 +368,7 @@ let circuit_one (env : Environ.env) : circuit =
   {
     circuit_input_count = 0;
     circuit_wire_count = 1;
-    circuit_wires = [Binding_immidiate Reference_one];
+    circuit_wires = [Binding_immediate Reference_one];
     circuit_outputs = [0];
     circuit_with_wf_and_spec_constr = get_ref env "vcpu.circuit.one_with_wf_and_spec";
   }

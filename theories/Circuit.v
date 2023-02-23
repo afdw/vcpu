@@ -18,7 +18,7 @@ Register reference_Input as vcpu.reference.Input.
 Register reference_Wire as vcpu.reference.Wire.
 
 Inductive binding :=
-  | binding_Immidiate (r : reference)
+  | binding_Immediate (r : reference)
   | binding_Not (r : reference)
   | binding_And (r1 r2 : reference)
   | binding_Or (r1 r2 : reference)
@@ -26,7 +26,7 @@ Inductive binding :=
   | binding_If (r1 r2 r3 : reference).
 
 Register binding as vcpu.binding.type.
-Register binding_Immidiate as vcpu.binding.Immidiate.
+Register binding_Immediate as vcpu.binding.Immediate.
 Register binding_Not as vcpu.binding.Not.
 Register binding_And as vcpu.binding.And.
 Register binding_Or as vcpu.binding.Or.
@@ -56,7 +56,7 @@ Definition reference_wf input_count wire_count r :=
 
 Definition binding_wf input_count wire_count b :=
   match b with
-  | binding_Immidiate r => reference_wf input_count wire_count r
+  | binding_Immediate r => reference_wf input_count wire_count r
   | binding_Not r => reference_wf input_count wire_count r
   | binding_And r1 r2 =>
     reference_wf input_count wire_count r1 /\
@@ -94,7 +94,7 @@ Qed.
 
 Definition binding_wf_b input_count wire_count b :=
   match b with
-  | binding_Immidiate r => reference_wf_b input_count wire_count r
+  | binding_Immediate r => reference_wf_b input_count wire_count r
   | binding_Not r => reference_wf_b input_count wire_count r
   | binding_And r1 r2 =>
     reference_wf_b input_count wire_count r1 &&
@@ -191,7 +191,7 @@ Definition reference_compute inputs intermediates r :=
 
 Definition binding_compute inputs intermediates b :=
   match b with
-  | binding_Immidiate r => reference_compute inputs intermediates r
+  | binding_Immediate r => reference_compute inputs intermediates r
   | binding_Not r => negb (reference_compute inputs intermediates r)
   | binding_And r1 r2 =>
     reference_compute inputs intermediates r1 && reference_compute inputs intermediates r2
@@ -325,7 +325,7 @@ Definition circuit_add_translate_reference parent_wire_count input_references r 
 Definition circuit_add_translate_binding parent_wire_count input_references b :=
   let translate_reference := circuit_add_translate_reference parent_wire_count input_references in
   match b with
-  | binding_Immidiate r => binding_Immidiate (translate_reference r)
+  | binding_Immediate r => binding_Immediate (translate_reference r)
   | binding_Not r => binding_Not (translate_reference r)
   | binding_And r1 r2 => binding_And (translate_reference r1) (translate_reference r2)
   | binding_Or r1 r2 => binding_Or (translate_reference r1) (translate_reference r2)
@@ -568,7 +568,7 @@ Register circuit_empty_with_wf_and_spec as vcpu.circuit.empty_with_wf_and_spec.
 Definition circuit_id input_count := {|
   circuit_input_count := input_count;
   circuit_wire_count := input_count;
-  circuit_wires := list_init_bin (fun i => binding_Immidiate (reference_Input i)) input_count;
+  circuit_wires := list_init_bin (fun i => binding_Immediate (reference_Input i)) input_count;
   circuit_outputs := list_seq_bin 0 input_count;
 |}.
 
@@ -624,7 +624,7 @@ Register circuit_id_with_wf_and_spec as vcpu.circuit.id_with_wf_and_spec.
 Definition circuit_zero := {|
   circuit_input_count := 0;
   circuit_wire_count := 1;
-  circuit_wires := [binding_Immidiate reference_Zero];
+  circuit_wires := [binding_Immediate reference_Zero];
   circuit_outputs := [0%N];
 |}.
 
@@ -659,7 +659,7 @@ Register circuit_zero_with_wf_and_spec as vcpu.circuit.zero_with_wf_and_spec.
 Definition circuit_one := {|
   circuit_input_count := 0;
   circuit_wire_count := 1;
-  circuit_wires := [binding_Immidiate reference_One];
+  circuit_wires := [binding_Immediate reference_One];
   circuit_outputs := [0%N];
 |}.
 
@@ -916,7 +916,7 @@ Definition circuit_simplify_translate_reference mapping r :=
 Definition circuit_simplify_translate_binding mapping b :=
   let translate_reference := circuit_simplify_translate_reference mapping in
   match b with
-  | binding_Immidiate r => binding_Immidiate (translate_reference r)
+  | binding_Immediate r => binding_Immediate (translate_reference r)
   | binding_Not r => binding_Not (translate_reference r)
   | binding_And r1 r2 => binding_And (translate_reference r1) (translate_reference r2)
   | binding_Or r1 r2 => binding_Or (translate_reference r1) (translate_reference r2)
@@ -928,7 +928,7 @@ Definition circuit_simplify c :=
   let '(_, wires, mapping) :=
     List.fold_left (fun '(i, wires, mapping) b =>
       match b with
-      | binding_Immidiate (reference_Wire j) =>
+      | binding_Immediate (reference_Wire j) =>
         (
           N.succ i,
           wires,
