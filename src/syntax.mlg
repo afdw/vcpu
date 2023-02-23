@@ -17,4 +17,8 @@ VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
   {
     Compiler.entry_compile input_id param_constr_exprs (Some output_id)
   }
+| [ "Test" ] ->
+  {
+    Compiler.entry_test ()
+  }
 END

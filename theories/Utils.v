@@ -63,6 +63,8 @@ Proof.
   intros A B x y H1 H2. destruct H1, H2; constructor; intuition auto.
 Qed.
 
+Notation bitlist := (list bool).
+
 Definition length_bin {A} (l : list A) := N.of_nat (length l).
 
 Lemma length_bin_nil :
@@ -887,7 +889,7 @@ Fixpoint list_truncate {A} n l (default : A) :=
     end
   end.
 
-Fixpoint bitlist_to_nat (bl : list bool) : nat :=
+Fixpoint bitlist_to_nat (bl : bitlist) :=
   match bl with
   | [] => 0
   | b :: bl' => (if b then 1 else 0) + 2 * bitlist_to_nat bl'
@@ -895,31 +897,31 @@ Fixpoint bitlist_to_nat (bl : list bool) : nat :=
 
 Register bitlist_to_nat as vcpu.bitlist_to_nat.
 
-Fixpoint fixed_bitlist_of_nat (n m : nat) : list bool :=
+Fixpoint fixed_bitlist_of_nat n m :=
   match n with
   | 0 => []
   | S n' => (Nat.eqb (Nat.modulo m 2) 1) :: fixed_bitlist_of_nat n' (Nat.div m 2)
   end.
 
-Fixpoint bitlist_to_binnat (bl : list bool) : binnat :=
+Fixpoint bitlist_to_binnat bl :=
   match bl with
   | [] => 0%N
   | false :: bl' => BinPosDef.Pos.Ndouble (bitlist_to_binnat bl')
   | true :: bl' => BinPosDef.Pos.Nsucc_double (bitlist_to_binnat bl')
   end.
 
-Fixpoint bitlist_of_positive (n : positive) : list bool :=
+Fixpoint bitlist_of_positive n :=
   match n with
   | xI n' => true :: bitlist_of_positive n'
   | xO n' => false :: bitlist_of_positive n'
   | xH => [true]
   end.
 
-Definition bitlist_of_binnat n : list bool :=
+Definition bitlist_of_binnat n :=
   match n with
   | N0 => []
   | Npos n' => bitlist_of_positive n'
   end.
 
-Definition fixed_bitlist_of_binnat n m : list bool :=
+Definition fixed_bitlist_of_binnat n m :=
   list_truncate n (bitlist_of_binnat m) false.

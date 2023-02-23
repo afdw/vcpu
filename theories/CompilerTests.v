@@ -8,6 +8,8 @@ Require Coq.Lists.List.
 Import List.ListNotations.
 Import Coq.NArith.BinNat.
 
+Test.
+
 Unset Program Cases.
 
 #[program] Definition test1 (bv : bitvec 1) : bitvec 5 := let v := {|
@@ -51,7 +53,7 @@ Compute circuit_compute test3_circuit [].
 Definition add_one (b1 b2 c : bool) : bool * bool :=
   (b1 ^^ b2 ^^ c, b1 && b2 || c && (b1 ^^ b2)).
 
-Fixpoint list_add_aux bl1 bl2 bl_r c : list bool :=
+Fixpoint list_add_aux bl1 bl2 bl_r c :=
   match bl1, bl2 with
   | b1 :: bl1', b2 :: bl2' =>
     let '(b_r, c') := (let x := add_one b1 b2 c in x) in
