@@ -621,6 +621,80 @@ Definition circuit_id_with_wf_and_spec input_count : circuit_with_wf_and_spec :=
 
 Register circuit_id_with_wf_and_spec as vcpu.circuit.id_with_wf_and_spec.
 
+Definition circuit_switch data_size := {|
+  circuit_input_count := 1 + 2 * data_size;
+  circuit_wire_count := data_size;
+  circuit_wires :=
+    list_init_bin (fun i =>
+      binding_If
+        (reference_Input 0)
+        (reference_Input (1 + i))
+        (reference_Input (1 + data_size + i))
+    ) data_size;
+  circuit_outputs := list_seq_bin 0 data_size;
+|}.
+
+Theorem circuit_switch_wf :
+  forall data_size,
+  circuit_wf (circuit_switch data_size).
+Proof.
+  intros data_size. repeat split.
+  - unfold circuit_wire_count_wf. simpl. apply length_bin_list_init_bin.
+  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_bin_list_init_bin. simpl. lia.
+  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_seq_bin. auto.
+Qed.
+
+Lemma circuit_switch_spec_wires :
+  forall data_size,
+  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
+  circuit_compute_wires (circuit_switch data_size) inputs =
+    if list_nth_bin 0 inputs false
+    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
+    else list_select_bin inputs (list_seq_bin 1 data_size) false.
+Proof.
+  intros data_size inputs H. unfold circuit_compute_wires, circuit_compute_wires_aux, circuit_switch. simpl.
+  rewrite list_fold_left_list_init_bin. simpl. rewrite <- list_map_list_fold_left. unfold list_select_bin.
+  destruct (list_nth_bin 0 inputs false).
+  - rewrite (list_seq_bin_to_simple (1 + data_size)). rewrite List.map_map. auto.
+  - rewrite (list_seq_bin_to_simple 1). rewrite List.map_map. auto.
+Qed.
+
+Lemma circuit_switch_spec :
+  forall data_size,
+  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
+  circuit_compute (circuit_switch data_size) inputs =
+    if list_nth_bin 0 inputs false
+    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
+    else list_select_bin inputs (list_seq_bin 1 data_size) false.
+Proof.
+  intros data_size inputs H. unfold circuit_compute. rewrite (circuit_switch_spec_wires _ _ H). simpl.
+  replace data_size with (length_bin (if list_nth_bin 0 inputs false
+      then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
+      else list_select_bin inputs (list_seq_bin 1 data_size) false)) at 4.
+  - apply list_select_bin_all.
+  - destruct (list_nth_bin 0 inputs false).
+    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
+    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
+Qed.
+
+Definition circuit_switch_with_wf_and_spec data_size : circuit_with_wf_and_spec :=
+  let c_res_with_wf := {|
+    circuit_with_wf_circuit := circuit_switch data_size;
+    circuit_with_wf_circuit_wf := circuit_switch_wf data_size;
+  |} in
+  {|
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res :=
+      forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
+      circuit_compute (circuit_with_wf_circuit c_res) inputs =
+        if list_nth_bin 0 inputs false
+        then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
+        else list_select_bin inputs (list_seq_bin 1 data_size) false;
+    circuit_with_wf_and_spec_spec := circuit_switch_spec data_size;
+  |}.
+
+Register circuit_switch_with_wf_and_spec as vcpu.circuit.switch_with_wf_and_spec.
+
 Definition circuit_zero := {|
   circuit_input_count := 0;
   circuit_wire_count := 1;
@@ -830,80 +904,6 @@ Definition circuit_xor_with_wf_and_spec : circuit_with_wf_and_spec :=
   |}.
 
 Register circuit_xor_with_wf_and_spec as vcpu.circuit.xor_with_wf_and_spec.
-
-Definition circuit_switch data_size := {|
-  circuit_input_count := 1 + 2 * data_size;
-  circuit_wire_count := data_size;
-  circuit_wires :=
-    list_init_bin (fun i =>
-      binding_If
-        (reference_Input 0)
-        (reference_Input (1 + i))
-        (reference_Input (1 + data_size + i))
-    ) data_size;
-  circuit_outputs := list_seq_bin 0 data_size;
-|}.
-
-Theorem circuit_switch_wf :
-  forall data_size,
-  circuit_wf (circuit_switch data_size).
-Proof.
-  intros data_size. repeat split.
-  - unfold circuit_wire_count_wf. simpl. apply length_bin_list_init_bin.
-  - unfold circuit_wires_wf. simpl. rewrite list_forall_i_bin_list_init_bin. simpl. lia.
-  - unfold circuit_outputs_wf. simpl. rewrite list_forall_list_seq_bin. auto.
-Qed.
-
-Lemma circuit_switch_spec_wires :
-  forall data_size,
-  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-  circuit_compute_wires (circuit_switch data_size) inputs =
-    if list_nth_bin 0 inputs false
-    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-    else list_select_bin inputs (list_seq_bin 1 data_size) false.
-Proof.
-  intros data_size inputs H. unfold circuit_compute_wires, circuit_compute_wires_aux, circuit_switch. simpl.
-  rewrite list_fold_left_list_init_bin. simpl. rewrite <- list_map_list_fold_left. unfold list_select_bin.
-  destruct (list_nth_bin 0 inputs false).
-  - rewrite (list_seq_bin_to_simple (1 + data_size)). rewrite List.map_map. auto.
-  - rewrite (list_seq_bin_to_simple 1). rewrite List.map_map. auto.
-Qed.
-
-Lemma circuit_switch_spec :
-  forall data_size,
-  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-  circuit_compute (circuit_switch data_size) inputs =
-    if list_nth_bin 0 inputs false
-    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-    else list_select_bin inputs (list_seq_bin 1 data_size) false.
-Proof.
-  intros data_size inputs H. unfold circuit_compute. rewrite (circuit_switch_spec_wires _ _ H). simpl.
-  replace data_size with (length_bin (if list_nth_bin 0 inputs false
-      then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-      else list_select_bin inputs (list_seq_bin 1 data_size) false)) at 4.
-  - apply list_select_bin_all.
-  - destruct (list_nth_bin 0 inputs false).
-    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
-    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
-Qed.
-
-Definition circuit_switch_with_wf_and_spec data_size : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_switch data_size;
-    circuit_with_wf_circuit_wf := circuit_switch_wf data_size;
-  |} in
-  {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
-      forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-      circuit_compute (circuit_with_wf_circuit c_res) inputs =
-        if list_nth_bin 0 inputs false
-        then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-        else list_select_bin inputs (list_seq_bin 1 data_size) false;
-    circuit_with_wf_and_spec_spec := circuit_switch_spec data_size;
-  |}.
-
-Register circuit_switch_with_wf_and_spec as vcpu.circuit.switch_with_wf_and_spec.
 
 Definition circuit_simplify_translate_reference mapping r :=
   match r with

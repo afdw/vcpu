@@ -5,6 +5,10 @@ DECLARE PLUGIN "vcpu-plugin.plugin"
 }
 
 VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
+| [ "Test" ] ->
+  {
+    Compiler.entry_test ()
+  }
 | [ "Serialize" constr(input_typ) "as" ident(output_id) ] ->
   {
     Compiler.entry_serialize input_typ output_id
@@ -16,9 +20,5 @@ VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
 | [ "Compile" ident(input_id) "of" constr_list(param_constr_exprs) "as" ident(output_id) ] ->
   {
     Compiler.entry_compile input_id param_constr_exprs (Some output_id)
-  }
-| [ "Test" ] ->
-  {
-    Compiler.entry_test ()
   }
 END

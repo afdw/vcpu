@@ -355,6 +355,19 @@ let circuit_id (env : Environ.env) (input_count : int) : circuit =
       EConstr.mkApp (get_ref env "vcpu.circuit.id_with_wf_and_spec", [|to_binnat_constr env input_count|]);
   }
 
+let circuit_switch (env : Environ.env) (data_size : int) : circuit =
+  {
+    circuit_input_count = 1 + 2 * data_size;
+    circuit_wire_count = data_size;
+    circuit_wires =
+      List.init data_size (fun i ->
+        Binding_if (Reference_input 0, Reference_input (1 + i), Reference_input (1 + data_size + i))
+      );
+    circuit_outputs = List.init data_size (fun i -> i);
+    circuit_with_wf_and_spec_constr =
+      EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf_and_spec", [|to_binnat_constr env data_size|]);
+  }
+
 let circuit_zero (env : Environ.env) : circuit =
   {
     circuit_input_count = 0;
@@ -407,19 +420,6 @@ let circuit_xor (env : Environ.env) : circuit =
     circuit_wires = [Binding_xor (Reference_input 0, Reference_input 1)];
     circuit_outputs = [0];
     circuit_with_wf_and_spec_constr = get_ref env "vcpu.circuit.xor_with_wf_and_spec";
-  }
-
-let circuit_switch (env : Environ.env) (data_size : int) : circuit =
-  {
-    circuit_input_count = 1 + 2 * data_size;
-    circuit_wire_count = data_size;
-    circuit_wires =
-      List.init data_size (fun i ->
-        Binding_if (Reference_input 0, Reference_input (1 + i), Reference_input (1 + data_size + i))
-      );
-    circuit_outputs = List.init data_size (fun i -> i);
-    circuit_with_wf_and_spec_constr =
-      EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf_and_spec", [|to_binnat_constr env data_size|]);
   }
 
 let circuit_const (env : Environ.env) (data : bool list) : circuit =
@@ -921,6 +921,25 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
     Printer.pr_econstr_env env sigma c_source'.circuit_with_wf_and_spec_constr); *)
   (input_mapping, c_source')
 
+let entry_test () : unit =
+  let env = Global.env () in
+  ref_cache := CString.Map.empty;
+  let sigma = Evd.from_env env in
+  let circuit_with_wf_and_spec_constant =
+    Declare.declare_definition
+      ~info:(Declare.Info.make ())
+      ~cinfo:(
+        Declare.CInfo.make
+        ~name:("test" |> Names.Id.of_string)
+        ~typ:(Some (get_ref env "vcpu.circuit_with_wf_and_spec.type"))
+        ()
+      )
+      ~opaque:false
+      ~body:(circuit_const env [true; false; true; false]).circuit_with_wf_and_spec_constr
+      sigma
+    |> dest_const_ref in
+  ()
+
 let entry_serialize (input_typ_constr_expr : Constrexpr.constr_expr) (output_id : Names.Id.t) : unit =
   let env = Global.env () in
   ref_cache := CString.Map.empty;
@@ -1127,22 +1146,3 @@ let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.const
       )
   } in
   compiled := !compiled @ [((input_constant, params), c_output)]
-
-let entry_test () : unit =
-  let env = Global.env () in
-  ref_cache := CString.Map.empty;
-  let sigma = Evd.from_env env in
-  let circuit_with_wf_and_spec_constant =
-    Declare.declare_definition
-      ~info:(Declare.Info.make ())
-      ~cinfo:(
-        Declare.CInfo.make
-        ~name:("test" |> Names.Id.of_string)
-        ~typ:(Some (get_ref env "vcpu.circuit_with_wf_and_spec.type"))
-        ()
-      )
-      ~opaque:false
-      ~body:(circuit_const env [true; false; true; false]).circuit_with_wf_and_spec_constr
-      sigma
-    |> dest_const_ref in
-  ()

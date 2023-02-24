@@ -10,6 +10,14 @@ Import Coq.NArith.BinNat.
 
 Test.
 
+Serialize (bitvec 5) as serialize_bitvec_5.
+Compute vector_list (serialize_bitvec_5 [|true; false; true; false; false|]).
+Serialize comparison as serialize_comparison.
+Serialize (bool * bool) as serialize_pair_bool_bool.
+Compute vector_list (serialize_pair_bool_bool (true, false)).
+Serialize (vector (option comparison) 2 * bool) as serialize_pair_vector_option_comparison_2_bool.
+Serialize (bitvec 100) as serialize_bitvec_100.
+
 Unset Program Cases.
 
 #[program] Definition test1 (bv : bitvec 1) : bitvec 5 := let v := {|
@@ -238,11 +246,3 @@ Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit''
   (fixed_bitlist_of_binnat 32 3543 ++ fixed_bitlist_of_binnat 32 1231)).
 Unset NativeCompute Timing.
 *)
-
-Serialize (bitvec 5) as serialize_bitvec_5.
-Compute vector_list (serialize_bitvec_5 [|true; false; true; false; false|]).
-Serialize comparison as serialize_comparison.
-Serialize (bool * bool) as serialize_pair_bool_bool.
-Compute vector_list (serialize_pair_bool_bool (true, false)).
-Serialize (vector (option comparison) 2 * bool) as serialize_pair_vector_option_comparison_2_bool.
-Serialize (bitvec 100) as serialize_bitvec_100.
