@@ -250,6 +250,59 @@ Proof.
   intros intermediates b. rewrite List.app_assoc. auto.
 Qed.
 
+Definition circuit_set_input_count c input_count := {|
+  circuit_input_count := input_count;
+  circuit_wire_count := circuit_wire_count c;
+  circuit_wires := circuit_wires c;
+  circuit_outputs := circuit_outputs c;
+|}.
+
+Lemma circuit_set_input_count_wf :
+  forall c input_count,
+  circuit_wf c ->
+  (input_count >= circuit_input_count c)%N ->
+  circuit_wf (circuit_set_input_count c input_count).
+Proof.
+  intros c input_count H1 H2. repeat split.
+  - apply (proj1 H1).
+  - apply (list_forall_i_bin_incr _ _ _ (proj1 (proj2 H1))). intros i b H3. simpl.
+    apply (binding_wf_big_enough _ _ _ _ _ H3); lia.
+  - apply (proj2 (proj2 H1)).
+Qed.
+
+Lemma circuit_set_input_count_spec_wires :
+  forall c input_count,
+  circuit_wf c ->
+  (input_count >= circuit_input_count c)%N ->
+  forall inputs, length_bin inputs = circuit_input_count c ->
+  circuit_compute_wires (circuit_set_input_count c input_count) inputs =
+    circuit_compute_wires c inputs.
+Proof.
+  auto.
+Qed.
+
+Definition circuit_set_input_count_with_wf_and_spec
+  c_with_wf input_count
+  (H : (circuit_input_count (circuit_with_wf_circuit c_with_wf) <=? input_count)%N = true)
+  : circuit_with_wf_and_spec :=
+  let c := circuit_with_wf_circuit c_with_wf in
+  let c_wf := circuit_with_wf_circuit_wf c_with_wf in
+  let H' := N.le_ge _ _ (proj2 (Bool.reflect_iff _ _ (N.leb_spec0 _ _)) H) in
+  let c_res_with_wf :=
+  {|
+    circuit_with_wf_circuit := circuit_set_input_count c input_count;
+    circuit_with_wf_circuit_wf := circuit_set_input_count_wf c input_count c_wf H';
+  |} in
+  {|
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res :=
+      forall inputs, length_bin inputs = circuit_input_count c ->
+      circuit_compute_wires (circuit_with_wf_circuit c_res) inputs = circuit_compute_wires c inputs;
+    circuit_with_wf_and_spec_spec := circuit_set_input_count_spec_wires c input_count c_wf H';
+  |}.
+
+Register circuit_set_input_count_with_wf_and_spec as vcpu.circuit.set_input_count_with_wf_and_spec.
+
 Definition circuit_set_outputs c outputs := {|
   circuit_input_count := circuit_input_count c;
   circuit_wire_count := circuit_wire_count c;
@@ -274,7 +327,8 @@ Lemma circuit_set_outputs_spec_wires :
   circuit_wf c ->
   list_forall (fun i => (i < circuit_wire_count c)%N) outputs ->
   forall inputs, length_bin inputs = circuit_input_count c ->
-  circuit_compute_wires (circuit_set_outputs c outputs) inputs = circuit_compute_wires c inputs.
+  circuit_compute_wires (circuit_set_outputs c outputs) inputs =
+     circuit_compute_wires c inputs.
 Proof.
   intros c outputs H1 H2 inputs H3. unfold circuit_compute_wires. auto.
 Qed.

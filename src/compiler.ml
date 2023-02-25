@@ -302,6 +302,27 @@ let circuit_let_data (type a) (env : Environ.env) (f : (int -> circuit) -> circu
 let circuit_let (env : Environ.env) (f : (int -> circuit) -> circuit) (c : circuit) : circuit =
   circuit_let_data env (fun c -> (f c, ())) c |> fst
 
+let circuit_set_input_count (env : Environ.env) (c : circuit) (input_count : int) : circuit =
+  assert (input_count >= c.circuit_input_count);
+  {
+    circuit_input_count = input_count;
+    circuit_wire_count = c.circuit_wire_count;
+    circuit_wires = c.circuit_wires;
+    circuit_outputs = c.circuit_outputs;
+    circuit_with_wf_and_spec_constr =
+      EConstr.mkApp (
+        get_ref env "vcpu.circuit.set_input_count_with_wf_and_spec",
+        [|
+          EConstr.mkApp (
+            get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+            [|c.circuit_with_wf_and_spec_constr|]
+          );
+          input_count |> to_binnat_constr env;
+          EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
+        |]
+      );
+  }
+
 let circuit_set_outputs (env : Environ.env) (c : circuit) (outputs : int list) : circuit =
   assert (outputs |> List.for_all (fun i -> i < c.circuit_wire_count));
   {
