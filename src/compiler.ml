@@ -261,6 +261,47 @@ let circuit_compute_wires (c : circuit) (inputs : bool list) : bool list =
 let circuit_compute (c : circuit) (inputs : bool list) : bool list =
   list_select (circuit_compute_wires c inputs) c.circuit_outputs
 
+let circuit_let_data (type a) (env : Environ.env) (f : (int -> circuit) -> circuit * a) (c : circuit) : circuit * a =
+  let (c_res, x) = f (fun i ->
+    {
+      c with
+      circuit_with_wf_and_spec_constr =
+        EConstr.mkApp (
+          get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
+          [|
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+              [|EConstr.mkRel i|]
+            );
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.spec_statement",
+              [|EConstr.mkRel i|]
+            );
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.spec",
+              [|EConstr.mkRel i|]
+            );
+          |]
+        )
+      }
+  ) in
+  (
+    {
+      c_res with
+      circuit_with_wf_and_spec_constr =
+        EConstr.mkLetIn (
+          Context.anonR,
+          c.circuit_with_wf_and_spec_constr,
+          get_ref env "vcpu.circuit_with_wf_and_spec.type",
+          c_res.circuit_with_wf_and_spec_constr
+        )
+    },
+    x
+  )
+
+let circuit_let (env : Environ.env) (f : (int -> circuit) -> circuit) (c : circuit) : circuit =
+  circuit_let_data env (fun c -> (f c, ())) c |> fst
+
 let circuit_set_outputs (env : Environ.env) (c : circuit) (outputs : int list) : circuit =
   assert (outputs |> List.for_all (fun i -> i < c.circuit_wire_count));
   {
@@ -424,12 +465,52 @@ let circuit_xor (env : Environ.env) : circuit =
 
 let circuit_const (env : Environ.env) (data : bool list) : circuit =
   let c_const = circuit_empty env 0 in
-  let (c_const', zero_output_wires) = circuit_add env c_const (circuit_zero env) [] in
-  let (c_const'', one_output_wires) = circuit_add env c_const' (circuit_one env) [] in
-  let c_const''' =
-    circuit_set_outputs env c_const''
+  let (c_const, zero_output_wires) = circuit_add env c_const (circuit_zero env) [] in
+  let (c_const, one_output_wires) = circuit_add env c_const (circuit_one env) [] in
+  let c_const =
+    circuit_set_outputs env c_const
     (data |> List.map (fun b -> if b then one_output_wires else zero_output_wires) |> List.flatten) in
-  c_const'''
+  c_const |> circuit_let env (fun c_const ->
+    {
+      (c_const 0) with
+      circuit_with_wf_and_spec_constr =
+        EConstr.mkApp (
+          get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
+          [|
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+              [|(c_const 1).circuit_with_wf_and_spec_constr|]
+            );
+            EConstr.mkLambda (
+              Context.anonR,
+              get_ref env "vcpu.circuit_with_wf.type",
+              EConstr.mkApp (
+                get_ref env "core.eq.type",
+                [|
+                  EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
+                  EConstr.mkApp (
+                    get_ref env "vcpu.circuit.compute",
+                    [|
+                      EConstr.mkApp (get_ref env "vcpu.circuit_with_wf.circuit", [|EConstr.mkRel 1|]);
+                      [] |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+                    |]
+                  );
+                  data |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+                |]
+              )
+            );
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.spec",
+              [|
+                (c_const 1).circuit_with_wf_and_spec_constr;
+                [] |> to_list_constr env (get_ref env "core.bool.type");
+                prove_binnat_eq env 0;
+              |]
+            );
+          |]
+        )
+    }
+  )
 
 let constructor_arg_types_of_inductive (env : Environ.env) (sigma : Evd.evar_map)
     (ind : Names.inductive) (params : EConstr.t list) : EConstr.t list list =
@@ -1029,7 +1110,7 @@ let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.const
         ()
       )
       ~opaque:false
-      ~body:(c_result''.circuit_with_wf_and_spec_constr)
+      ~body:((* c_result'' *) c_source.circuit_with_wf_and_spec_constr)
       sigma
     |> dest_const_ref in
   let circuit_with_wf_constant =

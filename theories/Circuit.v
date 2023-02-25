@@ -216,6 +216,12 @@ Definition circuit_compute_wires c inputs :=
 Definition circuit_compute c inputs :=
   list_select_bin (circuit_compute_wires c inputs) (circuit_outputs c) false.
 
+Register reference_compute as vcpu.reference.compute.
+Register binding_compute as vcpu.binding.compute.
+Register circuit_compute_wires_aux as vcpu.circuit.compute_wires_aux.
+Register circuit_compute_wires as vcpu.circuit.compute_wires.
+Register circuit_compute as vcpu.circuit.compute.
+
 Theorem length_bin_circuit_compute_wires_aux :
   forall start_intermediates wires inputs,
   length_bin (circuit_compute_wires_aux start_intermediates wires inputs) = length_bin wires.
@@ -646,35 +652,37 @@ Qed.
 
 Lemma circuit_switch_spec_wires :
   forall data_size,
-  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-  circuit_compute_wires (circuit_switch data_size) inputs =
-    if list_nth_bin 0 inputs false
-    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-    else list_select_bin inputs (list_seq_bin 1 data_size) false.
+  forall b inputs_1 inputs_2,
+  length_bin inputs_1 = data_size%N ->
+  length_bin inputs_2 = data_size%N ->
+  circuit_compute_wires (circuit_switch data_size) (b :: inputs_1 ++ inputs_2) =
+    if b then inputs_2 else inputs_1.
 Proof.
-  intros data_size inputs H. unfold circuit_compute_wires, circuit_compute_wires_aux, circuit_switch. simpl.
-  rewrite list_fold_left_list_init_bin. simpl. rewrite <- list_map_list_fold_left. unfold list_select_bin.
-  destruct (list_nth_bin 0 inputs false).
-  - rewrite (list_seq_bin_to_simple (1 + data_size)). rewrite List.map_map. auto.
-  - rewrite (list_seq_bin_to_simple 1). rewrite List.map_map. auto.
+  intros data_size b inputs_1 inputs_2 H1 H2.
+  unfold circuit_compute_wires, circuit_compute_wires_aux, circuit_switch. simpl.
+  rewrite list_fold_left_list_init_bin. simpl. rewrite <- list_map_list_fold_left.
+  rewrite list_nth_bin_zero_cons. destruct b.
+  - rewrite <- (list_select_bin_all inputs_2 false) at 1. unfold list_select_bin. rewrite H2. apply List.map_ext.
+    intros i. rewrite <- N.add_assoc, <- succ_to_add. rewrite list_nth_bin_succ_cons.
+    rewrite <- H1. apply list_app_bin_nth_2_add.
+  - rewrite <- (list_select_bin_all inputs_1 false) at 1. unfold list_select_bin. rewrite H1.
+    apply list_map_ext_precise. apply list_forall_list_seq_bin. intros i H3. simpl.
+    rewrite <- succ_to_add. rewrite list_nth_bin_succ_cons.
+    apply list_app_bin_nth_1. lia.
 Qed.
 
 Lemma circuit_switch_spec :
   forall data_size,
-  forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-  circuit_compute (circuit_switch data_size) inputs =
-    if list_nth_bin 0 inputs false
-    then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-    else list_select_bin inputs (list_seq_bin 1 data_size) false.
+  forall b inputs_1 inputs_2,
+  length_bin inputs_1 = data_size%N ->
+  length_bin inputs_2 = data_size%N ->
+  circuit_compute (circuit_switch data_size) (b :: inputs_1 ++ inputs_2) =
+    if b then inputs_2 else inputs_1.
 Proof.
-  intros data_size inputs H. unfold circuit_compute. rewrite (circuit_switch_spec_wires _ _ H). simpl.
-  replace data_size with (length_bin (if list_nth_bin 0 inputs false
-      then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-      else list_select_bin inputs (list_seq_bin 1 data_size) false)) at 4.
-  - apply list_select_bin_all.
-  - destruct (list_nth_bin 0 inputs false).
-    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
-    + rewrite length_bin_list_select_bin. apply length_list_seq_bin.
+  intros data_size b inputs_1 inputs_2 H1 H2. unfold circuit_compute.
+  rewrite (circuit_switch_spec_wires _ _ _ _ H1 H2). simpl. destruct b.
+  - rewrite <- H2. apply list_select_bin_all.
+  - rewrite <- H1. apply list_select_bin_all.
 Qed.
 
 Definition circuit_switch_with_wf_and_spec data_size : circuit_with_wf_and_spec :=
@@ -685,11 +693,11 @@ Definition circuit_switch_with_wf_and_spec data_size : circuit_with_wf_and_spec 
   {|
     circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
     circuit_with_wf_and_spec_spec_statement c_res :=
-      forall inputs, length_bin inputs = (1 + 2 * data_size)%N ->
-      circuit_compute (circuit_with_wf_circuit c_res) inputs =
-        if list_nth_bin 0 inputs false
-        then list_select_bin inputs (list_seq_bin (1 + data_size) data_size) false
-        else list_select_bin inputs (list_seq_bin 1 data_size) false;
+      forall b inputs_1 inputs_2,
+      length_bin inputs_1 = data_size%N ->
+      length_bin inputs_2 = data_size%N ->
+      circuit_compute (circuit_with_wf_circuit c_res) (b :: inputs_1 ++ inputs_2) =
+        if b then inputs_2 else inputs_1;
     circuit_with_wf_and_spec_spec := circuit_switch_spec data_size;
   |}.
 
@@ -709,22 +717,20 @@ Proof.
 Qed.
 
 Lemma circuit_zero_spec :
-  forall inputs, length_bin inputs = 0%N ->
-  circuit_compute circuit_zero inputs = [false].
+  circuit_compute circuit_zero [] = [false].
 Proof.
-  intros inputs H. auto.
+  auto.
 Qed.
 
 Definition circuit_zero_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_zero;
     circuit_with_wf_circuit_wf := circuit_zero_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 0%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [false];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [] = [false];
     circuit_with_wf_and_spec_spec := circuit_zero_spec;
   |}.
 
@@ -744,22 +750,20 @@ Proof.
 Qed.
 
 Lemma circuit_one_spec :
-  forall inputs, length_bin inputs = 0%N ->
-  circuit_compute circuit_one inputs = [true].
+  circuit_compute circuit_one [] = [true].
 Proof.
-  intros inputs H. auto.
+  auto.
 Qed.
 
 Definition circuit_one_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_one;
     circuit_with_wf_circuit_wf := circuit_one_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 0%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [true];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [] = [true];
     circuit_with_wf_and_spec_spec := circuit_one_spec;
   |}.
 
@@ -779,22 +783,22 @@ Proof.
 Qed.
 
 Lemma circuit_not_spec :
-  forall inputs, length_bin inputs = 1%N ->
-  circuit_compute circuit_not inputs = [negb (List.nth 0 inputs false)].
+  forall b,
+  circuit_compute circuit_not [b] = [negb b].
 Proof.
-  intros inputs H. auto.
+  intros b. auto.
 Qed.
 
 Definition circuit_not_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_not;
     circuit_with_wf_circuit_wf := circuit_not_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 1%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [negb (List.nth 0 inputs false)];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      forall b,
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b] = [negb b];
     circuit_with_wf_and_spec_spec := circuit_not_spec;
   |}.
 
@@ -814,22 +818,22 @@ Proof.
 Qed.
 
 Lemma circuit_and_spec :
-  forall inputs, length_bin inputs = 2%N ->
-  circuit_compute circuit_and inputs = [List.nth 0 inputs false && List.nth 1 inputs false].
+  forall b1 b2,
+  circuit_compute circuit_and [b1; b2] = [b1 && b2].
 Proof.
   intros inputs H. auto.
 Qed.
 
 Definition circuit_and_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_and;
     circuit_with_wf_circuit_wf := circuit_and_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 2%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [List.nth 0 inputs false && List.nth 1 inputs false];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      forall b1 b2,
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 && b2];
     circuit_with_wf_and_spec_spec := circuit_and_spec;
   |}.
 
@@ -849,22 +853,22 @@ Proof.
 Qed.
 
 Lemma circuit_or_spec :
-  forall inputs, length_bin inputs = 2%N ->
-  circuit_compute circuit_or inputs = [List.nth 0 inputs false || List.nth 1 inputs false].
+  forall b1 b2,
+  circuit_compute circuit_or [b1; b2] = [b1 || b2].
 Proof.
   intros inputs H. auto.
 Qed.
 
 Definition circuit_or_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_or;
     circuit_with_wf_circuit_wf := circuit_or_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 2%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [List.nth 0 inputs false || List.nth 1 inputs false];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      forall b1 b2,
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 || b2];
     circuit_with_wf_and_spec_spec := circuit_or_spec;
   |}.
 
@@ -884,22 +888,22 @@ Proof.
 Qed.
 
 Lemma circuit_xor_spec :
-  forall inputs, length_bin inputs = 2%N ->
-  circuit_compute circuit_xor inputs = [List.nth 0 inputs false ^^ List.nth 1 inputs false].
+  forall b1 b2,
+  circuit_compute circuit_xor [b1; b2] = [b1 ^^ b2].
 Proof.
   intros inputs H. auto.
 Qed.
 
 Definition circuit_xor_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c := {|
+  let c_res_with_wf := {|
     circuit_with_wf_circuit := circuit_xor;
     circuit_with_wf_circuit_wf := circuit_xor_wf;
   |} in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c;
-    circuit_with_wf_and_spec_spec_statement c :=
-      forall inputs, length_bin inputs = 2%N ->
-      circuit_compute (circuit_with_wf_circuit c) inputs = [List.nth 0 inputs false ^^ List.nth 1 inputs false];
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+      forall b1 b2,
+      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 ^^ b2];
     circuit_with_wf_and_spec_spec := circuit_xor_spec;
   |}.
 

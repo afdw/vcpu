@@ -104,6 +104,13 @@ Qed.
 
 Definition list_nth_bin {A} i l (default : A) := List.nth (N.to_nat i) l default.
 
+Lemma list_nth_bin_zero_cons :
+  forall {A} x l (default : A),
+  list_nth_bin 0 (x :: l) default = x.
+Proof.
+  intros A x l default. auto.
+Qed.
+
 Lemma list_nth_bin_succ_cons :
   forall {A} i x l (default : A),
   list_nth_bin (N.succ i) (x :: l) default = list_nth_bin i l default.
@@ -726,7 +733,7 @@ Proof.
   intros s n. unfold list_seq_bin. rewrite Nnat.N2Nat.inj_succ. simpl. repeat f_equal; lia.
 Qed.
 
-Lemma length_list_seq_bin :
+Lemma length_bin_list_seq_bin :
   forall s n,
   length_bin (list_seq_bin s n) = n.
 Proof.
@@ -823,7 +830,7 @@ Proof.
 Qed.
 
 Definition list_select_bin {A} values indices (default : A) :=
-  List.map (fun i => List.nth (N.to_nat i) values default) indices.
+  List.map (fun i => list_nth_bin i values default) indices.
 
 Lemma length_bin_list_select_bin :
   forall {A} values indices (default : A),
@@ -839,8 +846,9 @@ Proof.
   intros A values default. unfold list_select_bin, list_seq_bin.
   rewrite List.map_map. unfold length_bin. rewrite Nnat.Nat2N.id. induction values as [ | x values' IH].
   - auto.
-  - simpl. rewrite <- List.seq_shift. rewrite List.map_map. rewrite <- IH at 2. f_equal.
-    apply List.map_ext. intros i. rewrite ? Nnat.Nat2N.id. auto.
+  - simpl. rewrite list_nth_bin_zero_cons. rewrite <- List.seq_shift. rewrite List.map_map.
+    rewrite <- IH at 2. f_equal. apply List.map_ext. intros i. rewrite Nnat.Nat2N.inj_succ.
+    apply list_nth_bin_succ_cons.
 Qed.
 
 Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=
