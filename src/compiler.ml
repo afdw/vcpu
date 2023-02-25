@@ -302,22 +302,21 @@ let circuit_let_data (type a) (env : Environ.env) (f : (int -> circuit) -> circu
 let circuit_let (env : Environ.env) (f : (int -> circuit) -> circuit) (c : circuit) : circuit =
   circuit_let_data env (fun c -> (f c, ())) c |> fst
 
-let circuit_set_input_count (env : Environ.env) (c : circuit) (input_count : int) : circuit =
-  assert (input_count >= c.circuit_input_count);
+let circuit_grow_input_count (env : Environ.env) (c : circuit) (additional_input_count : int) : circuit =
   {
-    circuit_input_count = input_count;
+    circuit_input_count = c.circuit_input_count + additional_input_count;
     circuit_wire_count = c.circuit_wire_count;
     circuit_wires = c.circuit_wires;
     circuit_output_wires = c.circuit_output_wires;
     circuit_with_wf_and_spec_constr =
       EConstr.mkApp (
-        get_ref env "vcpu.circuit.set_input_count_with_wf_and_spec",
+        get_ref env "vcpu.circuit.grow_input_count_with_wf_and_spec",
         [|
           EConstr.mkApp (
             get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
             [|c.circuit_with_wf_and_spec_constr|]
           );
-          input_count |> to_binnat_constr env;
+          additional_input_count |> to_binnat_constr env;
           EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
         |]
       );
@@ -502,23 +501,27 @@ let circuit_const (env : Environ.env) (data : bool list) : circuit =
               get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
               [|(c_const 1).circuit_with_wf_and_spec_constr|]
             );
-            EConstr.mkLambda (
-              Context.anonR,
-              get_ref env "vcpu.circuit_with_wf.type",
-              EConstr.mkApp (
-                get_ref env "core.eq.type",
-                [|
-                  EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
-                  EConstr.mkApp (
-                    get_ref env "vcpu.circuit.compute",
-                    [|
-                      EConstr.mkApp (get_ref env "vcpu.circuit_with_wf.circuit", [|EConstr.mkRel 1|]);
-                      [] |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
-                    |]
-                  );
-                  data |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
-                |]
-              )
+            EConstr.mkApp (
+              get_ref env "core.eq.type",
+              [|
+                EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
+                EConstr.mkApp (
+                  get_ref env "vcpu.circuit.compute",
+                  [|
+                    EConstr.mkApp (
+                      get_ref env "vcpu.circuit_with_wf.circuit",
+                      [|
+                        EConstr.mkApp (
+                          get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                          [|(c_const 1).circuit_with_wf_and_spec_constr|]
+                        )
+                      |]
+                    );
+                    [] |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+                  |]
+                );
+                data |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+              |]
             );
             EConstr.mkApp (
               get_ref env "vcpu.circuit_with_wf_and_spec.spec",
@@ -1194,7 +1197,7 @@ let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.const
       ~cinfo:(
         Declare.CInfo.make
         ~name:(name_prefix ^ "_circuit_spec_statement" |> Names.Id.of_string)
-        ~typ:(Some (EConstr.mkArrow (get_ref env "vcpu.circuit_with_wf.type") Sorts.Relevant EConstr.mkProp))
+        ~typ:(Some EConstr.mkProp)
         ()
       )
       ~opaque:false
@@ -1212,12 +1215,7 @@ let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.const
       ~cinfo:(
         Declare.CInfo.make
         ~name:(name_prefix ^ "_circuit_spec" |> Names.Id.of_string)
-        ~typ:(Some (
-          EConstr.mkApp (
-            EConstr.mkConst circuit_spec_statement_constant,
-            [|EConstr.mkConst circuit_with_wf_constant|]
-          )
-        ))
+        ~typ:(Some (EConstr.mkConst circuit_spec_statement_constant))
         ()
       )
       ~opaque:false

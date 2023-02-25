@@ -1,4 +1,5 @@
 Require Import Utils.
+Require Import Vector.
 
 Require Import Lia.
 Require Coq.Lists.List.
@@ -170,9 +171,8 @@ Qed.
 
 Record circuit_with_wf_and_spec := {
   circuit_with_wf_and_spec_circuit_with_wf : circuit_with_wf;
-  circuit_with_wf_and_spec_spec_statement : circuit_with_wf -> Prop;
-  circuit_with_wf_and_spec_spec :
-    circuit_with_wf_and_spec_spec_statement circuit_with_wf_and_spec_circuit_with_wf;
+  circuit_with_wf_and_spec_spec_statement : Prop;
+  circuit_with_wf_and_spec_spec : circuit_with_wf_and_spec_spec_statement;
 }.
 
 Register circuit_with_wf_and_spec as vcpu.circuit_with_wf_and_spec.type.
@@ -216,11 +216,90 @@ Definition circuit_compute_wires c inputs :=
 Definition circuit_compute c inputs :=
   list_select_bin (circuit_compute_wires c inputs) (circuit_output_wires c) false.
 
+Definition circuit_compute_wires_vec c (inputs : bitvec (circuit_input_count c)) :=
+  circuit_compute_wires c (vector_list inputs).
+
+Definition circuit_compute_vec c (inputs : bitvec (circuit_input_count c)) :=
+  circuit_compute c (vector_list inputs).
+
 Register reference_compute as vcpu.reference.compute.
 Register binding_compute as vcpu.binding.compute.
 Register circuit_compute_wires_aux as vcpu.circuit.compute_wires_aux.
 Register circuit_compute_wires as vcpu.circuit.compute_wires.
 Register circuit_compute as vcpu.circuit.compute.
+Register circuit_compute_wires_vec as vcpu.circuit.compute_wires_vec.
+Register circuit_compute_vec as vcpu.circuit.compute_vec.
+
+Lemma reference_compute_big_enough :
+  forall inputs_1 inputs_2 intermediates_1 intermediates_2 r,
+  reference_wf (length_bin inputs_1) (length_bin intermediates_1) r ->
+  reference_compute (inputs_1 ++ inputs_2) (intermediates_1 ++ intermediates_2) r =
+    reference_compute inputs_1 intermediates_1 r.
+Proof.
+  intros inputs_1 inputs_2 intermediates_1 intermediates_2 r H. destruct r as [ | | i | i]; simpl; simpl in H.
+  - auto.
+  - auto.
+  - apply list_app_bin_nth_1. auto.
+  - apply list_app_bin_nth_1. auto.
+Qed.
+
+Lemma binding_compute_big_enough :
+  forall inputs_1 inputs_2 intermediates_1 intermediates_2 b,
+  binding_wf (length_bin inputs_1) (length_bin intermediates_1) b ->
+  binding_compute (inputs_1 ++ inputs_2) (intermediates_1 ++ intermediates_2) b =
+    binding_compute inputs_1 intermediates_1 b.
+Proof.
+  intros inputs_1 inputs_2 intermediates_1 intermediates_2 b H.
+  destruct b as [r | r | r1 r2 | r1 r2 | r1 r2 | r1 r2 r3]; simpl; simpl in H;
+  rewrite ? reference_compute_big_enough; intuition auto.
+Qed.
+
+Lemma circuit_compute_wires_aux_big_enough :
+  forall start_intermediates wires inputs_1 inputs_2,
+  list_forall_i_bin (binding_wf (length_bin inputs_1)) wires ->
+  circuit_compute_wires_aux start_intermediates wires (inputs_1 ++ inputs_2) =
+    circuit_compute_wires_aux start_intermediates wires inputs_1.
+Proof.
+  intros start_intermediates wires inputs_1 inputs_2. unfold circuit_compute_wires_aux.
+  cut (
+    forall l,
+    list_forall_i_bin_aux (binding_wf (length_bin inputs_1)) (length_bin l) wires ->
+    List.fold_left (fun intermediates b =>
+      intermediates ++ [binding_compute (inputs_1 ++ inputs_2) (start_intermediates ++ intermediates) b]
+    ) wires l =
+    List.fold_left (fun intermediates b =>
+      intermediates ++ [binding_compute inputs_1 (start_intermediates ++ intermediates) b]
+    ) wires l
+  ).
+  - intros H. apply (H []).
+  - induction wires as [ | b wires' IH]; intros l H.
+    + auto.
+    + simpl. rewrite (List.app_nil_end (start_intermediates ++ l)) at 1.
+      destruct H as (H1 & H2). rewrite binding_compute_big_enough.
+      * apply IH. rewrite length_bin_app. rewrite length_bin_cons, length_bin_nil. simpl.
+        rewrite N.add_1_r. auto.
+      * rewrite length_bin_app. apply (binding_wf_big_enough _ _ _ _ _ H1); lia.
+Qed.
+
+Lemma circuit_compute_wires_big_enough :
+  forall c inputs_1 inputs_2,
+  length_bin inputs_1 = circuit_input_count c ->
+  circuit_wf c ->
+  circuit_compute_wires c (inputs_1 ++ inputs_2) = circuit_compute_wires c inputs_1.
+Proof.
+  intros c inputs_1 inputs_2 H1 H2. unfold circuit_compute_wires. apply circuit_compute_wires_aux_big_enough.
+  rewrite H1. apply (proj1 (proj2 H2)).
+Qed.
+
+Lemma circuit_compute_big_enough :
+  forall c inputs_1 inputs_2,
+  length_bin inputs_1 = circuit_input_count c ->
+  circuit_wf c ->
+  circuit_compute c (inputs_1 ++ inputs_2) = circuit_compute c inputs_1.
+Proof.
+  intros c inputs_1 inputs_2 H1 H2. unfold circuit_compute. f_equal.
+  apply (circuit_compute_wires_big_enough _ _ _ H1 H2).
+Qed.
 
 Theorem length_bin_circuit_compute_wires_aux :
   forall start_intermediates wires inputs,
@@ -250,58 +329,69 @@ Proof.
   intros intermediates b. rewrite List.app_assoc. auto.
 Qed.
 
-Definition circuit_set_input_count c input_count := {|
-  circuit_input_count := input_count;
+Definition circuit_grow_input_count c additional_input_count := {|
+  circuit_input_count := circuit_input_count c + additional_input_count;
   circuit_wire_count := circuit_wire_count c;
   circuit_wires := circuit_wires c;
   circuit_output_wires := circuit_output_wires c;
 |}.
 
-Lemma circuit_set_input_count_wf :
-  forall c input_count,
+Lemma circuit_grow_input_count_wf :
+  forall c additional_input_count,
   circuit_wf c ->
-  (input_count >= circuit_input_count c)%N ->
-  circuit_wf (circuit_set_input_count c input_count).
+  circuit_wf (circuit_grow_input_count c additional_input_count).
 Proof.
-  intros c input_count H1 H2. repeat split.
+  intros c additional_input_count H1. repeat split.
   - apply (proj1 H1).
   - apply (list_forall_i_bin_incr _ _ _ (proj1 (proj2 H1))). intros i b H3. simpl.
     apply (binding_wf_big_enough _ _ _ _ _ H3); lia.
   - apply (proj2 (proj2 H1)).
 Qed.
 
-Lemma circuit_set_input_count_spec_wires :
-  forall c input_count,
+Lemma circuit_grow_input_count_spec_wires :
+  forall c additional_input_count,
   circuit_wf c ->
-  (input_count >= circuit_input_count c)%N ->
-  forall inputs, length_bin inputs = circuit_input_count c ->
-  circuit_compute_wires (circuit_set_input_count c input_count) inputs =
-    circuit_compute_wires c inputs.
+  forall inputs_1 inputs_2,
+  length_bin inputs_1 = circuit_input_count c ->
+  length_bin inputs_2 = additional_input_count ->
+  circuit_compute_wires (circuit_grow_input_count c additional_input_count) (inputs_1 ++ inputs_2) =
+    circuit_compute_wires c inputs_1.
 Proof.
-  auto.
+  intros c additional_input_count H1 inputs_1 inputs_2 H2 H3. unfold circuit_compute_wires. simpl.
+  apply circuit_compute_wires_aux_big_enough. rewrite H2. apply (proj1 (proj2 H1)).
 Qed.
 
-Definition circuit_set_input_count_with_wf_and_spec
-  c_with_wf input_count
-  (H : (circuit_input_count (circuit_with_wf_circuit c_with_wf) <=? input_count)%N = true)
+Lemma circuit_grow_input_count_spec_wires_vec :
+  forall c additional_input_count,
+  circuit_wf c ->
+  forall (inputs_1 : bitvec (circuit_input_count c)) (inputs_2 : bitvec additional_input_count),
+  circuit_compute_wires_vec (circuit_grow_input_count c additional_input_count) (vector_app inputs_1 inputs_2) =
+    circuit_compute_wires_vec c inputs_1.
+Proof.
+  intros c additional_input_count H inputs_1 inputs_2. unfold circuit_compute_wires_vec.
+  apply (circuit_grow_input_count_spec_wires _ _ H).
+  - apply (vector_wf inputs_1).
+  - apply (vector_wf inputs_2).
+Qed.
+
+Definition circuit_grow_input_count_with_wf_and_spec c_with_wf additional_input_count
   : circuit_with_wf_and_spec :=
   let c := circuit_with_wf_circuit c_with_wf in
   let c_wf := circuit_with_wf_circuit_wf c_with_wf in
-  let H' := N.le_ge _ _ (proj2 (Bool.reflect_iff _ _ (N.leb_spec0 _ _)) H) in
-  let c_res_with_wf :=
+  let c_res := circuit_grow_input_count c additional_input_count in
   {|
-    circuit_with_wf_circuit := circuit_set_input_count c input_count;
-    circuit_with_wf_circuit_wf := circuit_set_input_count_wf c input_count c_wf H';
-  |} in
-  {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
-      forall inputs, length_bin inputs = circuit_input_count c ->
-      circuit_compute_wires (circuit_with_wf_circuit c_res) inputs = circuit_compute_wires c inputs;
-    circuit_with_wf_and_spec_spec := circuit_set_input_count_spec_wires c input_count c_wf H';
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_grow_input_count_wf c additional_input_count c_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
+      forall (inputs_1 : bitvec (circuit_input_count c)) (inputs_2 : bitvec additional_input_count),
+      circuit_compute_wires_vec c_res (vector_app inputs_1 inputs_2) =
+        circuit_compute_wires_vec c inputs_1;
+    circuit_with_wf_and_spec_spec := circuit_grow_input_count_spec_wires_vec c additional_input_count c_wf;
   |}.
 
-Register circuit_set_input_count_with_wf_and_spec as vcpu.circuit.set_input_count_with_wf_and_spec.
+Register circuit_grow_input_count_with_wf_and_spec as vcpu.circuit.grow_input_count_with_wf_and_spec.
 
 Definition circuit_set_output_wires c output_wires := {|
   circuit_input_count := circuit_input_count c;
@@ -358,16 +448,15 @@ Definition circuit_set_output_wires_with_wf_and_spec
   let c := circuit_with_wf_circuit c_with_wf in
   let c_wf := circuit_with_wf_circuit_wf c_with_wf in
   let H' := proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (fun i => N.ltb_spec0 i _))) H in
-  let c_res_with_wf :=
+  let c_res := circuit_set_output_wires c output_wires in
   {|
-    circuit_with_wf_circuit := circuit_set_output_wires c output_wires;
-    circuit_with_wf_circuit_wf := circuit_set_output_wires_wf c output_wires c_wf H';
-  |} in
-  {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := circuit_set_output_wires c output_wires;
+      circuit_with_wf_circuit_wf := circuit_set_output_wires_wf c output_wires c_wf H';
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall inputs, length_bin inputs = circuit_input_count c ->
-      circuit_compute (circuit_with_wf_circuit c_res) inputs =
+      circuit_compute c_res inputs =
         list_select_bin (circuit_compute_wires c inputs) output_wires false;
     circuit_with_wf_and_spec_spec := circuit_set_output_wires_spec c output_wires c_wf H';
   |}.
@@ -496,14 +585,9 @@ Proof.
   - auto.
   - auto.
   - replace false with (reference_compute inputs parent_intermediates reference_Zero) by auto.
-    rewrite list_nth_bin_list_map. remember (list_nth_bin j input_references reference_Zero) as r eqn:Heqr.
-    destruct r as [ | | k | k]; simpl.
-    + auto.
-    + auto.
-    + auto.
-    + apply list_app_bin_nth_1. simpl in H6. rewrite <- H3 in H6.
-      specialize (list_forall_list_nth_bin _ _ _ reference_Zero H4 H6) as H8. rewrite <- Heqr in H8. simpl in H8.
-      lia.
+    rewrite list_nth_bin_list_map. rewrite List.app_nil_end at 1. apply reference_compute_big_enough.
+    simpl in H6. rewrite <- H3 in H6. rewrite H5, H7.
+    apply (list_forall_list_nth_bin _ _ _ reference_Zero H4 H6).
   - replace (circuit_wire_count c_parent) with (length_bin parent_intermediates). apply list_app_bin_nth_2_add.
 Qed.
 
@@ -570,17 +654,18 @@ Definition circuit_add_with_wf_and_spec
   let c_child := circuit_with_wf_circuit c_child_with_wf in
   let c_child_wf := circuit_with_wf_circuit_wf c_child_with_wf in
   let H2' := proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (reference_wf_b_reflect _ _))) H2 in
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_add c_parent c_child input_references;
-    circuit_with_wf_circuit_wf := circuit_add_wf c_parent c_child input_references c_parent_wf c_child_wf H1 H2';
-  |} in
+  let c_res := circuit_add c_parent c_child input_references in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf :=
+        circuit_add_wf c_parent c_child input_references c_parent_wf c_child_wf H1 H2';
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall inputs, length_bin inputs = circuit_input_count c_parent ->
       let parent_intermediates := circuit_compute_wires c_parent inputs in
       let child_inputs := List.map (reference_compute inputs parent_intermediates) input_references in
-      circuit_compute_wires (circuit_with_wf_circuit c_res_with_wf) inputs =
+      circuit_compute_wires c_res inputs =
         parent_intermediates ++ circuit_compute_wires c_child child_inputs;
     circuit_with_wf_and_spec_spec :=
       circuit_add_spec_wires c_parent c_child input_references c_parent_wf c_child_wf H1 H2';
@@ -611,15 +696,15 @@ Proof.
 Qed.
 
 Definition circuit_empty_with_wf_and_spec input_count : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_empty input_count;
-    circuit_with_wf_circuit_wf := circuit_empty_wf input_count;
-  |} in
+  let c_res := circuit_empty input_count in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_empty_wf input_count;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall inputs, length_bin inputs = input_count ->
-      circuit_compute_wires (circuit_with_wf_circuit c_res) inputs = [];
+      circuit_compute_wires c_res inputs = [];
     circuit_with_wf_and_spec_spec := circuit_empty_spec_wires input_count;
   |}.
 
@@ -667,15 +752,15 @@ Proof.
 Qed.
 
 Definition circuit_id_with_wf_and_spec input_count : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_id input_count;
-    circuit_with_wf_circuit_wf := circuit_id_wf input_count;
-  |} in
+  let c_res := circuit_id input_count in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_id_wf input_count;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall inputs, length_bin inputs = input_count ->
-      circuit_compute_wires (circuit_with_wf_circuit c_res) inputs = inputs;
+      circuit_compute_wires c_res inputs = inputs;
     circuit_with_wf_and_spec_spec := circuit_id_spec_wires input_count;
   |}.
 
@@ -740,17 +825,17 @@ Proof.
 Qed.
 
 Definition circuit_switch_with_wf_and_spec data_size : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_switch data_size;
-    circuit_with_wf_circuit_wf := circuit_switch_wf data_size;
-  |} in
+  let c_res := circuit_switch data_size in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_switch_wf data_size;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall b inputs_1 inputs_2,
       length_bin inputs_1 = data_size%N ->
       length_bin inputs_2 = data_size%N ->
-      circuit_compute (circuit_with_wf_circuit c_res) (b :: inputs_1 ++ inputs_2) =
+      circuit_compute c_res (b :: inputs_1 ++ inputs_2) =
         if b then inputs_2 else inputs_1;
     circuit_with_wf_and_spec_spec := circuit_switch_spec data_size;
   |}.
@@ -777,14 +862,14 @@ Proof.
 Qed.
 
 Definition circuit_zero_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_zero;
-    circuit_with_wf_circuit_wf := circuit_zero_wf;
-  |} in
+  let c_res := circuit_zero in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [] = [false];
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_zero_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
+      circuit_compute c_res [] = [false];
     circuit_with_wf_and_spec_spec := circuit_zero_spec;
   |}.
 
@@ -810,14 +895,14 @@ Proof.
 Qed.
 
 Definition circuit_one_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_one;
-    circuit_with_wf_circuit_wf := circuit_one_wf;
-  |} in
+  let c_res := circuit_one in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [] = [true];
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_one_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
+      circuit_compute c_res [] = [true];
     circuit_with_wf_and_spec_spec := circuit_one_spec;
   |}.
 
@@ -844,15 +929,15 @@ Proof.
 Qed.
 
 Definition circuit_not_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_not;
-    circuit_with_wf_circuit_wf := circuit_not_wf;
-  |} in
+  let c_res := circuit_not in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_not_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall b,
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b] = [negb b];
+      circuit_compute c_res [b] = [negb b];
     circuit_with_wf_and_spec_spec := circuit_not_spec;
   |}.
 
@@ -879,15 +964,15 @@ Proof.
 Qed.
 
 Definition circuit_and_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_and;
-    circuit_with_wf_circuit_wf := circuit_and_wf;
-  |} in
+  let c_res := circuit_and in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_and_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall b1 b2,
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 && b2];
+      circuit_compute c_res [b1; b2] = [b1 && b2];
     circuit_with_wf_and_spec_spec := circuit_and_spec;
   |}.
 
@@ -914,15 +999,15 @@ Proof.
 Qed.
 
 Definition circuit_or_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_or;
-    circuit_with_wf_circuit_wf := circuit_or_wf;
-  |} in
+  let c_res := circuit_or in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_or_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall b1 b2,
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 || b2];
+      circuit_compute c_res [b1; b2] = [b1 || b2];
     circuit_with_wf_and_spec_spec := circuit_or_spec;
   |}.
 
@@ -949,15 +1034,15 @@ Proof.
 Qed.
 
 Definition circuit_xor_with_wf_and_spec : circuit_with_wf_and_spec :=
-  let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_xor;
-    circuit_with_wf_circuit_wf := circuit_xor_wf;
-  |} in
+  let c_res := circuit_xor in
   {|
-    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
-    circuit_with_wf_and_spec_spec_statement c_res_with_wf :=
+    circuit_with_wf_and_spec_circuit_with_wf := {|
+      circuit_with_wf_circuit := c_res;
+      circuit_with_wf_circuit_wf := circuit_xor_wf;
+    |};
+    circuit_with_wf_and_spec_spec_statement :=
       forall b1 b2,
-      circuit_compute (circuit_with_wf_circuit c_res_with_wf) [b1; b2] = [b1 ^^ b2];
+      circuit_compute c_res [b1; b2] = [b1 ^^ b2];
     circuit_with_wf_and_spec_spec := circuit_xor_spec;
   |}.
 
