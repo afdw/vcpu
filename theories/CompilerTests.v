@@ -35,7 +35,7 @@ Set Program Cases.
 
 Compile test1.
 Compute circuit_wires test1_circuit.
-Compute circuit_outputs test1_circuit.
+Compute circuit_output_wires test1_circuit.
 Compute circuit_compute test1_circuit [false]. (* [false; false; false; true; true] *)
 Compute circuit_compute test1_circuit [true]. (* [true; true; false; true; false] *)
 
