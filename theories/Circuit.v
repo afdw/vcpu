@@ -341,17 +341,17 @@ Qed.
 Register circuit_with_wf_compute_wires_vec as vcpu.circuit_with_wf.compute_wires_vec.
 Register circuit_with_wf_compute_vec as vcpu.circuit_with_wf.compute_vec.
 
-Definition circuit_grow_input_count c additional_input_count := {|
+Definition circuit_increase_input_count c additional_input_count := {|
   circuit_input_count := circuit_input_count c + additional_input_count;
   circuit_wire_count := circuit_wire_count c;
   circuit_wires := circuit_wires c;
   circuit_output_wires := circuit_output_wires c;
 |}.
 
-Lemma circuit_grow_input_count_wf :
+Lemma circuit_increase_input_count_wf :
   forall c additional_input_count,
   circuit_wf c ->
-  circuit_wf (circuit_grow_input_count c additional_input_count).
+  circuit_wf (circuit_increase_input_count c additional_input_count).
 Proof.
   intros c additional_input_count H1. repeat split.
   - apply (proj1 H1).
@@ -360,26 +360,26 @@ Proof.
   - apply (proj2 (proj2 H1)).
 Qed.
 
-Lemma circuit_grow_input_count_spec_wires :
+Lemma circuit_increase_input_count_spec_wires :
   forall c additional_input_count,
   circuit_wf c ->
   forall inputs_1 inputs_2,
   length_bin inputs_1 = circuit_input_count c ->
   length_bin inputs_2 = additional_input_count ->
-  circuit_compute_wires (circuit_grow_input_count c additional_input_count) (inputs_1 ++ inputs_2) =
+  circuit_compute_wires (circuit_increase_input_count c additional_input_count) (inputs_1 ++ inputs_2) =
     circuit_compute_wires c inputs_1.
 Proof.
   intros c additional_input_count H1 inputs_1 inputs_2 H2 H3. unfold circuit_compute_wires. simpl.
   apply circuit_compute_wires_aux_big_enough. rewrite H2. apply (proj1 (proj2 H1)).
 Qed.
 
-#[program] Definition circuit_grow_input_count_with_wf_and_spec c_with_wf additional_input_count
+#[program] Definition circuit_increase_input_count_with_wf_and_spec c_with_wf additional_input_count
   : circuit_with_wf_and_spec :=
   let c := circuit_with_wf_circuit c_with_wf in
   let c_wf := circuit_with_wf_circuit_wf c_with_wf in
   let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_grow_input_count c additional_input_count;
-    circuit_with_wf_circuit_wf := circuit_grow_input_count_wf c additional_input_count c_wf;
+    circuit_with_wf_circuit := circuit_increase_input_count c additional_input_count;
+    circuit_with_wf_circuit_wf := circuit_increase_input_count_wf c additional_input_count c_wf;
   |} in
   {|
     circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
@@ -390,13 +390,14 @@ Qed.
   |}.
 Next Obligation.
   intros c_with_wf additional_input_count c c_wf c_res_with_wf inputs_1 inputs_2.
-  unfold circuit_with_wf_compute_wires_vec. apply mk_vector_ext_all. apply circuit_grow_input_count_spec_wires.
+  unfold circuit_with_wf_compute_wires_vec. apply mk_vector_ext_all.
+  apply circuit_increase_input_count_spec_wires.
   - apply c_wf.
   - apply (vector_wf inputs_1).
   - apply (vector_wf inputs_2).
 Qed.
 
-Register circuit_grow_input_count_with_wf_and_spec as vcpu.circuit.grow_input_count_with_wf_and_spec.
+Register circuit_increase_input_count_with_wf_and_spec as vcpu.circuit.increase_input_count_with_wf_and_spec.
 
 Definition circuit_set_output_wires c output_wires := {|
   circuit_input_count := circuit_input_count c;
