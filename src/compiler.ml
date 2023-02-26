@@ -387,8 +387,7 @@ let circuit_add (env : Environ.env) (c_parent : circuit) (c_child : circuit)
             );
             input_references
               |> List.map (to_reference_constr env)
-              |> to_list_constr env (get_ref env "vcpu.reference.type");
-            prove_binnat_eq env (input_references |> List.length);
+              |> to_vector_constr env (get_ref env "vcpu.reference.type");
             EConstr.mkApp (get_ref env "core.eq.refl", [|get_ref env "core.bool.type"; get_ref env "core.bool.true"|]);
           |]
         );
@@ -504,31 +503,25 @@ let circuit_const (env : Environ.env) (data : bool list) : circuit =
             EConstr.mkApp (
               get_ref env "core.eq.type",
               [|
-                EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
+                mk_vector_type env (get_ref env "core.bool.type") (data |> List.length);
                 EConstr.mkApp (
-                  get_ref env "vcpu.circuit.compute",
+                  get_ref env "vcpu.circuit_with_wf.compute_vec",
                   [|
                     EConstr.mkApp (
-                      get_ref env "vcpu.circuit_with_wf.circuit",
-                      [|
-                        EConstr.mkApp (
-                          get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
-                          [|(c_const 1).circuit_with_wf_and_spec_constr|]
-                        )
-                      |]
+                      get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                      [|(c_const 1).circuit_with_wf_and_spec_constr|]
                     );
-                    [] |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+                    [] |> to_vector_constr env (get_ref env "core.bool.type");
                   |]
                 );
-                data |> List.map (to_bool_constr env) |> to_list_constr env (get_ref env "core.bool.type");
+                data |> List.map (to_bool_constr env) |> to_vector_constr env (get_ref env "core.bool.type");
               |]
             );
             EConstr.mkApp (
               get_ref env "vcpu.circuit_with_wf_and_spec.spec",
               [|
                 (c_const 1).circuit_with_wf_and_spec_constr;
-                [] |> to_list_constr env (get_ref env "core.bool.type");
-                prove_binnat_eq env 0;
+                [] |> to_vector_constr env (get_ref env "core.bool.type");
               |]
             );
           |]

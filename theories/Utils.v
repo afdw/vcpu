@@ -28,6 +28,47 @@ Proof.
   intros n. replace n with (0 + n)%N at 1 by auto. rewrite <- N.add_succ_l. auto.
 Qed.
 
+Definition normalize_eq_binnat n m (H : n = m) :=
+  match N.eq_dec n m with
+  | left H1 => H1
+  | right H1 => False_rect _ (H1 H)
+  end.
+
+Lemma normalize_eq_binnat_ext :
+  forall n m H1 H2,
+  normalize_eq_binnat n m H1 = normalize_eq_binnat n m H2.
+Proof.
+  intros n m H1 H2. unfold normalize_eq_binnat. destruct (N.eq_dec n m) as [H3 | H3].
+  - auto.
+  - congruence.
+Qed.
+
+Lemma binpos_eq_dec_eq_refl :
+  forall n,
+  BinPos.Pos.eq_dec n n = left eq_refl.
+Proof.
+  intros n. induction n as [n' IH | n' IH | ].
+  - simpl. unfold sumbool_rec, sumbool_rect. rewrite IH. auto.
+  - simpl. unfold sumbool_rec, sumbool_rect. rewrite IH. auto.
+  - auto.
+Qed.
+
+Lemma binnat_eq_dec_eq_refl :
+  forall n,
+  N.eq_dec n n = left eq_refl.
+Proof.
+  intros n. destruct n as [ | n'].
+  - auto.
+  - simpl. unfold sumbool_rec, sumbool_rect. rewrite binpos_eq_dec_eq_refl. auto.
+Qed.
+
+Lemma normalize_eq_binnat_eq_refl :
+  forall n H,
+  normalize_eq_binnat n n H = eq_refl.
+Proof.
+  intros n. unfold normalize_eq_binnat. rewrite binnat_eq_dec_eq_refl. auto.
+Qed.
+
 Infix "^^" := xorb (at level 40, left associativity) : bool_scope.
 
 Definition nandb b1 b2 := negb (b1 && b2).
@@ -918,17 +959,17 @@ Fixpoint bitlist_to_binnat bl :=
   | true :: bl' => BinPosDef.Pos.Nsucc_double (bitlist_to_binnat bl')
   end.
 
-Fixpoint bitlist_of_positive n :=
+Fixpoint bitlist_of_binpos n :=
   match n with
-  | xI n' => true :: bitlist_of_positive n'
-  | xO n' => false :: bitlist_of_positive n'
+  | xI n' => true :: bitlist_of_binpos n'
+  | xO n' => false :: bitlist_of_binpos n'
   | xH => [true]
   end.
 
 Definition bitlist_of_binnat n :=
   match n with
   | N0 => []
-  | Npos n' => bitlist_of_positive n'
+  | Npos n' => bitlist_of_binpos n'
   end.
 
 Definition fixed_bitlist_of_binnat n m :=
