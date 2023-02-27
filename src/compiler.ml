@@ -28,6 +28,11 @@ let dest_const_ref (glob_ref : Names.GlobRef.t) : Names.Constant.t =
   | ConstRef t -> t
   | _ -> assert false
 
+let dest_ind_ref (glob_ref : Names.GlobRef.t) : Names.Ind.t =
+  match glob_ref with
+  | IndRef t -> t
+  | _ -> assert false
+
 let to_bool_constr (env : Environ.env) (b : bool) : EConstr.t =
   if b then get_ref env "core.bool.true" else get_ref env "core.bool.false"
 
@@ -265,25 +270,8 @@ let circuit_let_data (type a) (env : Environ.env) (f : (int -> circuit) -> circu
   let (c_res, x) = f (fun i ->
     {
       c with
-      circuit_with_wf_and_spec_constr =
-        EConstr.mkApp (
-          get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
-          [|
-            EConstr.mkApp (
-              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
-              [|EConstr.mkRel i|]
-            );
-            EConstr.mkApp (
-              get_ref env "vcpu.circuit_with_wf_and_spec.spec_statement",
-              [|EConstr.mkRel i|]
-            );
-            EConstr.mkApp (
-              get_ref env "vcpu.circuit_with_wf_and_spec.spec",
-              [|EConstr.mkRel i|]
-            );
-          |]
-        )
-      }
+      circuit_with_wf_and_spec_constr = EConstr.mkRel i
+    }
   ) in
   (
     {
@@ -416,7 +404,7 @@ let circuit_id (env : Environ.env) (input_count : int) : circuit =
   }
 
 let circuit_switch (env : Environ.env) (data_size : int) : circuit =
-  {
+  let c_switch = {
     circuit_input_count = 1 + 2 * data_size;
     circuit_wire_count = data_size;
     circuit_wires =
@@ -426,7 +414,129 @@ let circuit_switch (env : Environ.env) (data_size : int) : circuit =
     circuit_output_wires = List.init data_size (fun i -> i);
     circuit_with_wf_and_spec_constr =
       EConstr.mkApp (get_ref env "vcpu.circuit.switch_with_wf_and_spec", [|to_binnat_constr env data_size|]);
-  }
+  } in
+  c_switch |> circuit_let env (fun c_switch ->
+    let app =
+      EConstr.mkApp (
+        get_ref env "vcpu.vector.app",
+        [|
+          get_ref env "core.bool.type";
+          to_binnat_constr env 1;
+          to_binnat_constr env (2 * data_size);
+          [EConstr.mkRel 3] |> to_vector_constr env (get_ref env "core.bool.type");
+          EConstr.mkApp (
+            get_ref env "vcpu.vector.app",
+            [|
+              get_ref env "core.bool.type";
+              to_binnat_constr env data_size;
+              to_binnat_constr env data_size;
+              EConstr.mkRel 2;
+              EConstr.mkRel 1;
+            |]
+          );
+        |]
+      ) in
+    {
+      (c_switch 0) with
+      circuit_with_wf_and_spec_constr =
+        EConstr.mkApp (
+          get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
+          [|
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+              [|(c_switch 1).circuit_with_wf_and_spec_constr|]
+            );
+            EConstr.mkProd (
+              Context.anonR,
+              get_ref env "core.bool.type",
+              EConstr.mkProd (
+                Context.anonR,
+                mk_vector_type env (get_ref env "core.bool.type") data_size,
+                EConstr.mkProd (
+                  Context.anonR,
+                  mk_vector_type env (get_ref env "core.bool.type") data_size,
+                  EConstr.mkApp (
+                    get_ref env "vcpu.vector.similar",
+                    [|
+                      get_ref env "core.bool.type";
+                      to_binnat_constr env data_size;
+                      to_binnat_constr env data_size;
+                      EConstr.mkApp (
+                        get_ref env "vcpu.circuit_with_wf.compute_vec",
+                        [|
+                          EConstr.mkApp (
+                            get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                            [|(c_switch 4).circuit_with_wf_and_spec_constr|]
+                          );
+                          app;
+                        |]
+                      );
+                      EConstr.mkCase (
+                        Inductiveops.make_case_info
+                          env
+                          (Coqlib.lib_ref "core.bool.type" |> dest_ind_ref)
+                          Sorts.Relevant
+                          Constr.IfStyle,
+                        EConstr.EInstance.empty,
+                        [||],
+                        (
+                          [|Context.anonR|],
+                          mk_vector_type env (get_ref env "core.bool.type") data_size
+                        ),
+                        Constr.NoInvert,
+                        EConstr.mkRel 3,
+                        [|
+                          ([||], EConstr.mkRel 1);
+                          ([||], EConstr.mkRel 2);
+                        |];
+                      )
+                    |]
+                  )
+                )
+              )
+            );
+            EConstr.mkLambda (
+              Context.anonR,
+              get_ref env "core.bool.type",
+              EConstr.mkLambda (
+                Context.anonR,
+                mk_vector_type env (get_ref env "core.bool.type") data_size,
+                EConstr.mkLambda (
+                  Context.anonR,
+                  mk_vector_type env (get_ref env "core.bool.type") data_size,
+                  EConstr.mkApp (
+                    EConstr.mkApp (
+                      get_ref env "vcpu.circuit_with_wf_and_spec.spec",
+                      [|(c_switch 4).circuit_with_wf_and_spec_constr|]
+                    ),
+                    [|
+                      app;
+                      EConstr.mkRel 3;
+                      EConstr.mkRel 2;
+                      EConstr.mkRel 1;
+                      EConstr.mkApp (
+                        get_ref env "core.eq.refl",
+                        [|
+                          EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
+                          EConstr.mkApp (
+                            get_ref env "vcpu.vector.list",
+                            [|
+                              get_ref env "core.bool.type";
+                              to_binnat_constr env (1 + 2 * data_size);
+                              app;
+                            |]
+                          )
+                        |]
+                      );
+                    |]
+                  )
+                )
+              )
+            );
+          |]
+        )
+    }
+  )
 
 let circuit_zero (env : Environ.env) : circuit =
   {
@@ -703,7 +813,7 @@ let rec serialize (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) :
       | _ -> CErrors.user_err Pp.(str "Unknown type:" ++ spc () ++ Printer.pr_econstr_env env sigma typ) in
     EConstr.mkLambda (Context.anonR, typ, body)
 
-let red_flags (excluded : Names.Constant.t option) : CClosure.RedFlags.reds =
+let red_flags (env : Environ.env) (excluded : Names.Constant.t option) : CClosure.RedFlags.reds =
   let builtin = ["core.bool.negb"; "core.bool.andb"; "core.bool.orb"; "core.bool.xorb"] in
   let builtin_constants = builtin |> List.map Coqlib.lib_ref |> List.map dest_const_ref in
   let compiled_constants =
@@ -713,7 +823,7 @@ let red_flags (excluded : Names.Constant.t option) : CClosure.RedFlags.reds =
     |> List.filter (fun constant ->
       match excluded with
       | None -> true
-      | Some excluded -> not (Names.Constant.CanOrd.equal constant excluded)
+      | Some excluded -> not (Environ.QConstant.equal env constant excluded)
     ) in
   builtin_constants @ compiled_constants
   |> List.fold_left (fun red_flags constant ->
@@ -729,7 +839,7 @@ let rec verify_reduction_not_blocked (env : Environ.env) (sigma : Evd.evar_map)
     args |> Array.iter (verify_reduction_not_blocked env sigma evars)
   | Case (ci, _, _, _, _, scrutinee, _) ->
     if evars |> constr_list_mem sigma scrutinee &&
-      Environ.QGlobRef.equal env (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "vcpu.vector.type")
+      Environ.QInd.equal env ci.ci_ind (Coqlib.lib_ref "vcpu.vector.type" |> dest_ind_ref)
     then raise (Reduction_blocked scrutinee)
     else verify_reduction_not_blocked env sigma evars scrutinee
   | _ -> ()
@@ -867,7 +977,7 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* Match bool *)
     | Case (ci, _, _, (_, brs_type), _, scrutinee, brs) when
-        Environ.QGlobRef.equal env (Names.GlobRef.IndRef ci.ci_ind) (Coqlib.lib_ref "core.bool.type") ->
+        Environ.QInd.equal env ci.ci_ind (Coqlib.lib_ref "core.bool.type" |> dest_ind_ref) ->
       let (c_source', scutinee_output_wires) = convert_child sigma c_source scrutinee input_evar_mapping in
       let (c_source'', br_false_output_wires) = convert_child sigma c_source' (brs.(1) |> snd) input_evar_mapping in
       let (c_source''', br_true_output_wires) = convert_child sigma c_source'' (brs.(0) |> snd) input_evar_mapping in
@@ -1008,7 +1118,7 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
       ) in
     let substituted =
       Termops.replace_term sigma reduction_blocking_evar (to_vector_constr env element_typ vector_evars) source in
-    let reduced_substituted = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags None) env sigma) substituted in
+    let reduced_substituted = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags env None) env sigma) substituted in
     let (c_source', substituted_output_wires) =
       convert_child sigma c_source reduced_substituted
       (input_evar_mapping @ vector_evar_mapping) in
@@ -1033,7 +1143,7 @@ let entry_test () : unit =
         ()
       )
       ~opaque:false
-      ~body:(circuit_const env [true; false; true; false]).circuit_with_wf_and_spec_constr
+      ~body:(circuit_switch env 4).circuit_with_wf_and_spec_constr
       sigma
     |> dest_const_ref in
   ()
@@ -1051,9 +1161,8 @@ let entry_serialize (input_typ_constr_expr : Constrexpr.constr_expr) (output_id 
         Declare.CInfo.make
         ~name:output_id
         ~typ:(Some (
-          EConstr.mkArrow
+          EConstr.mkArrowR
             input_typ
-            Sorts.Relevant
             (mk_vector_type env (get_ref env "core.bool.type") input_typ_size)
         ))
         ()
@@ -1087,7 +1196,8 @@ let entry_compile (input_id : Names.Id.t) (param_constr_exprs : Constrexpr.const
       ~opaque:false ~body:applied_input sigma
     |> ignore
   | None -> ());
-  let reduced_input = Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags (Some input_constant)) env sigma) applied_input in
+  let reduced_input =
+    Cbv.cbv_norm (Cbv.create_cbv_infos (red_flags env (Some input_constant)) env sigma) applied_input in
   let (args, source) = reduced_input |> EConstr.decompose_lambda sigma in
   let arg_types = args |> List.map snd in
   let (sigma, args_size, arg_evars, source_evar_mapping) =

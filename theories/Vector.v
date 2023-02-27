@@ -60,6 +60,8 @@ Definition vector_similar {A n1 n2} (v1 : vector A n1) (v2 : vector A n2) := vec
 
 Infix "~=" := vector_similar (at level 70) : type_scope.
 
+Register vector_similar as vcpu.vector.similar.
+
 #[program] Definition vector_head {A n} (v : vector A (N.succ n)) : A :=
   match vector_list v with
   | x :: _ => x
