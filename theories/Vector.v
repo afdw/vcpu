@@ -62,6 +62,16 @@ Infix "~=" := vector_similar (at level 70) : type_scope.
 
 Register vector_similar as vcpu.vector.similar.
 
+Lemma vector_similar_ext :
+  forall {A n} (v1 : vector A n) (v2 : vector A n),
+  v1 = v2 ->
+  v1 ~= v2.
+Proof.
+  intros A n v1 v2 H. rewrite H. reflexivity.
+Qed.
+
+Register vector_similar_ext as vcpu.vector.similar_ext.
+
 #[program] Definition vector_head {A n} (v : vector A (N.succ n)) : A :=
   match vector_list v with
   | x :: _ => x
