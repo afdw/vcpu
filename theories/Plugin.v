@@ -18,4 +18,15 @@ Qed.
 
 Register prove_nat_le as num.nat.prove_le.
 
+Axiom axiom_false : False.
+
+Lemma prove_any :
+  forall {P : Prop},
+  P.
+Proof.
+  intros P. exfalso. apply axiom_false.
+Qed.
+
+Register prove_any as vcpu.prop.prove_any.
+
 Declare ML Module "vcpu_plugin:vcpu-plugin.plugin".

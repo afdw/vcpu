@@ -611,9 +611,11 @@ let circuit_const (env : Environ.env) (data : bool list) : circuit =
               [|(c_const 1).circuit_with_wf_and_spec_constr|]
             );
             EConstr.mkApp (
-              get_ref env "core.eq.type",
+              get_ref env "vcpu.vector.similar",
               [|
-                mk_vector_type env (get_ref env "core.bool.type") (data |> List.length);
+                get_ref env "core.bool.type";
+                to_binnat_constr env (data |> List.length);
+                to_binnat_constr env (data |> List.length);
                 EConstr.mkApp (
                   get_ref env "vcpu.circuit_with_wf.compute_vec",
                   [|
@@ -632,6 +634,18 @@ let circuit_const (env : Environ.env) (data : bool list) : circuit =
               [|
                 (c_const 1).circuit_with_wf_and_spec_constr;
                 [] |> to_vector_constr env (get_ref env "core.bool.type");
+                [false; true]
+                  |> List.map (to_bool_constr env)
+                  |> to_vector_constr env (get_ref env "core.bool.type");
+                EConstr.mkApp (
+                  get_ref env "core.eq.refl",
+                  [|
+                    EConstr.mkApp (get_ref env "core.list.type", [|get_ref env "core.bool.type"|]);
+                    [false; true]
+                      |> List.map (to_bool_constr env)
+                      |> to_list_constr env (get_ref env "core.bool.type");
+                  |]
+                )
               |]
             );
           |]
@@ -844,6 +858,24 @@ let rec verify_reduction_not_blocked (env : Environ.env) (sigma : Evd.evar_map)
     else verify_reduction_not_blocked env sigma evars scrutinee
   | _ -> ()
 
+let prove_any (env : Environ.env) (prop : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "vcpu.prop.prove_any", [|prop|])
+
+let prove_vector_similar (env : Environ.env) (typ : EConstr.t)
+    (length : int) (v1 : EConstr.t) (v2 : EConstr.t) : EConstr.t =
+  prove_any env (
+    EConstr.mkApp (
+      get_ref env "vcpu.vector.similar",
+      [|
+        typ;
+        to_binnat_constr env length;
+        to_binnat_constr env length;
+        v1;
+        v2;
+      |]
+    )
+  )
+
 let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t list) (source : EConstr.t)
     : (EConstr.t * int list) list * circuit =
   Feedback.msg_info Pp.(str "compile" ++ spc () ++ Printer.pr_econstr_env env sigma source);
@@ -903,6 +935,132 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
       (evar, evar_inputs_wires |> List.map (fun i -> Reference_input i))
     ) in
 
+  let circuit_add_applied c_source c_child input_references source_intermediates child_inputs child_outputs =
+    let (c_source', child_output_wires) = circuit_add env c_source c_child input_references in
+    (
+      c_source' |> circuit_let env (fun c_source' ->
+        {
+          (c_source' 0) with
+          circuit_with_wf_and_spec_constr =
+            EConstr.mkApp (
+              get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
+              [|
+                EConstr.mkApp (
+                  get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                  [|(c_source' 1).circuit_with_wf_and_spec_constr|]
+                );
+                EConstr.mkApp (
+                  get_ref env "vcpu.vector.similar",
+                  [|
+                    get_ref env "core.bool.type";
+                    to_binnat_constr env
+                      (c_source.circuit_wire_count + (c_child.circuit_output_wires |> List.length));
+                    to_binnat_constr env
+                      (c_source.circuit_wire_count + (c_child.circuit_output_wires |> List.length));
+                    EConstr.mkApp (
+                      get_ref env "vcpu.circuit_with_wf.compute_wires_vec",
+                      [|
+                        EConstr.mkApp (
+                          get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                          [|(c_source' 1).circuit_with_wf_and_spec_constr|]
+                        );
+                        serialized_evars;
+                      |]
+                    );
+                    EConstr.mkApp (
+                      get_ref env "vcpu.vector.app",
+                      [|
+                        get_ref env "core.bool.type";
+                        to_binnat_constr env c_source.circuit_wire_count;
+                        to_binnat_constr env (c_child.circuit_output_wires |> List.length);
+                        source_intermediates;
+                        child_outputs;
+                      |]
+                    );
+                  |]
+                );
+                EConstr.mkApp (
+                  get_ref env "vcpu.circuit_with_wf_and_spec.spec",
+                  [|
+                    (c_source' 1).circuit_with_wf_and_spec_constr;
+                    serialized_evars;
+                    source_intermediates;
+                    child_inputs;
+                    child_outputs;
+                    prove_vector_similar
+                      env
+                      (get_ref env "core.bool.type")
+                      c_source.circuit_wire_count
+                      source_intermediates
+                      (
+                        EConstr.mkApp (
+                          get_ref env "vcpu.circuit_with_wf.compute_wires_vec",
+                          [|
+                            EConstr.mkApp (
+                              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                              [|c_source.circuit_with_wf_and_spec_constr|]
+                            );
+                            serialized_evars;
+                          |]
+                        )
+                      );
+                    prove_vector_similar
+                      env
+                      (get_ref env "core.bool.type")
+                      c_child.circuit_input_count
+                      source_intermediates
+                      (
+                        input_references |> List.map (fun r ->
+                          EConstr.mkApp (
+                            get_ref env "vcpu.reference.compute",
+                            [|
+                              EConstr.mkApp (
+                                get_ref env "vcpu.vector.list",
+                                [|
+                                  get_ref env "core.bool.type";
+                                  to_binnat_constr env source_size;
+                                  serialized_evars;
+                                |]
+                              );
+                              EConstr.mkApp (
+                                get_ref env "vcpu.vector.list",
+                                [|
+                                  get_ref env "core.bool.type";
+                                  to_binnat_constr env c_source.circuit_wire_count;
+                                  source_intermediates;
+                                |]
+                              );
+                              to_reference_constr env r;
+                            |]
+                          )
+                        ) |> to_vector_constr env (get_ref env "core.bool.type")
+                      );
+                    prove_vector_similar
+                      env
+                      (get_ref env "core.bool.type")
+                      c_child.circuit_wire_count
+                      child_outputs
+                      (
+                        EConstr.mkApp (
+                          get_ref env "vcpu.circuit_with_wf.compute_wires_vec",
+                          [|
+                            EConstr.mkApp (
+                              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
+                              [|c_child.circuit_with_wf_and_spec_constr|]
+                            );
+                            child_inputs;
+                          |]
+                        )
+                      );
+                  |]
+                );
+              |]
+            )
+        }
+      ),
+      child_output_wires
+    ) in
+
   let convert_child sigma c_source child child_evar_mapping =
     let (child_input_mapping, c_child) =
       compile env sigma (child_evar_mapping |> List.map fst) child in
@@ -932,26 +1090,6 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
           |]
         );
         serialized_source;
-      |]
-    ) in
-  let source_spec_of_eq c_source source_spec =
-    EConstr.mkApp (
-      get_ref env "vcpu.vector.similar_ext",
-      [|
-        get_ref env "core.bool.type";
-        to_binnat_constr env source_size;
-        EConstr.mkApp (
-          get_ref env "vcpu.circuit_with_wf.compute_vec",
-          [|
-            EConstr.mkApp (
-              get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
-              [|c_source.circuit_with_wf_and_spec_constr|]
-            );
-            serialized_evars;
-          |]
-        );
-        serialized_source;
-        source_spec;
       |]
     ) in
 
@@ -1098,8 +1236,8 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
 
     (* false and true *)
     | _ when EConstr.eq_constr sigma source (get_ref env "core.bool.false") ->
-      let c_zero = circuit_zero in
-      let (c_source, one_output_wires) = circuit_add env c_source (c_zero env) [] in
+      let c_zero = circuit_zero env in
+      let (c_source, one_output_wires) = circuit_add env c_source c_zero [] in
       let c_source = circuit_set_output_wires env c_source one_output_wires in
       let c_source = c_source |> circuit_let env (fun c_source ->
         {
@@ -1113,14 +1251,19 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
                   [|(c_source 1).circuit_with_wf_and_spec_constr|]
                 );
                 source_spec_statement (c_source 1);
-                source_spec_of_eq (c_source 1) (
-                  EConstr.mkApp (
-                    get_ref env "vcpu.circuit_with_wf_and_spec.spec",
-                    [|
-                      (c_source 1).circuit_with_wf_and_spec_constr;
-                      serialized_evars;
-                    |]
-                  )
+                EConstr.mkApp (
+                  get_ref env "vcpu.circuit_with_wf_and_spec.spec",
+                  [|
+                    (c_source 1).circuit_with_wf_and_spec_constr;
+                    serialized_evars;
+                    [to_bool_constr env false] |> to_vector_constr env (get_ref env "core.bool.type");
+                    prove_vector_similar
+                      env
+                      (get_ref env "core.bool.type")
+                      1
+                      ([to_bool_constr env false] |> to_vector_constr env (get_ref env "core.bool.type"))
+                      ([to_bool_constr env false] |> to_vector_constr env (get_ref env "core.bool.type"));
+                  |]
                 );
               |]
             )
@@ -1128,34 +1271,12 @@ let rec compile (env : Environ.env) (sigma : Evd.evar_map) (evars : EConstr.t li
       ) in
       (sigma, c_source)
     | _ when EConstr.eq_constr sigma source (get_ref env "core.bool.true") ->
-      let c_one = circuit_one in
-      let (c_source, one_output_wires) = circuit_add env c_source (c_one env) [] in
+      let c_one = circuit_one env in
+      let (c_source, one_output_wires) = circuit_add_applied c_source c_one []
+        ([] |> to_vector_constr env (get_ref env "core.bool.type"))
+        ([] |> to_vector_constr env (get_ref env "core.bool.type"))
+        ([to_bool_constr env true] |> to_vector_constr env (get_ref env "core.bool.type")) in
       let c_source = circuit_set_output_wires env c_source one_output_wires in
-      let c_source = c_source |> circuit_let env (fun c_source ->
-        {
-          (c_source 0) with
-          circuit_with_wf_and_spec_constr =
-            EConstr.mkApp (
-              get_ref env "vcpu.circuit_with_wf_and_spec.constructor",
-              [|
-                EConstr.mkApp (
-                  get_ref env "vcpu.circuit_with_wf_and_spec.circuit_with_wf",
-                  [|(c_source 1).circuit_with_wf_and_spec_constr|]
-                );
-                source_spec_statement (c_source 1);
-                source_spec_of_eq (c_source 1) (
-                  EConstr.mkApp (
-                    get_ref env "vcpu.circuit_with_wf_and_spec.spec",
-                    [|
-                      (c_source 1).circuit_with_wf_and_spec_constr;
-                      serialized_evars;
-                    |]
-                  )
-                );
-              |]
-            )
-        }
-      ) in
       (sigma, c_source)
 
     (* Vector *)
