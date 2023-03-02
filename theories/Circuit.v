@@ -442,12 +442,12 @@ Proof.
 Qed.
 
 #[program] Definition circuit_set_output_wires_with_wf_and_spec
-  c_with_wf output_wires
+  c_with_wf output_count (output_wires : vector binnat output_count)
   (H :
     let n := circuit_wire_count (circuit_with_wf_circuit c_with_wf) in
     list_forall_b
       (fun i => (i <? n)%N)
-      output_wires =
+      (vector_list output_wires) =
     true
   )
   : circuit_with_wf_and_spec :=
@@ -455,20 +455,20 @@ Qed.
   let c_wf := circuit_with_wf_circuit_wf c_with_wf in
   let H' := proj2 (Bool.reflect_iff _ _ (list_forall_b_reflect _ _ _ (fun i => N.ltb_spec0 i _))) H in
   let c_res_with_wf := {|
-    circuit_with_wf_circuit := circuit_set_output_wires c output_wires;
-    circuit_with_wf_circuit_wf := circuit_set_output_wires_wf c output_wires c_wf H';
+    circuit_with_wf_circuit := circuit_set_output_wires c (vector_list output_wires);
+    circuit_with_wf_circuit_wf := circuit_set_output_wires_wf c (vector_list output_wires) c_wf H';
   |} in
   {|
     circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
     circuit_with_wf_and_spec_spec_statement :=
-      forall (inputs : bitvec (circuit_input_count c)) (intermediates : bitvec (circuit_wire_count c)),
-      intermediates ~= circuit_with_wf_compute_wires_vec c_with_wf inputs ->
-      circuit_with_wf_compute_vec c_res_with_wf inputs ~=
-        vector_select_bin_vec intermediates output_wires false;
+      forall (inputs : bitvec (circuit_input_count c)) (outputs : bitvec output_count),
+      let intermediates := circuit_with_wf_compute_wires_vec c_with_wf inputs in
+      outputs ~= circuit_with_wf_compute_vec c_res_with_wf inputs ->
+      vector_select_bin intermediates output_wires false ~= outputs;
   |}.
 Next Obligation.
-  intros c_with_wf output_wires H1 c c_wf H' c_res_with_wf inputs intermediates H2.
-  unfold circuit_with_wf_compute_vec, vector_select_bin_vec. unfold vector_similar; simpl. rewrite H2.
+  intros c_with_wf output_count output_wires H1 c c_wf H' c_res_with_wf inputs outputs intermediates H2.
+  unfold circuit_with_wf_compute_vec, vector_select_bin. unfold vector_similar; simpl. rewrite H2.
   apply circuit_set_output_wires_spec.
   - apply (circuit_with_wf_circuit_wf c_with_wf).
   - auto.
@@ -677,29 +677,40 @@ Qed.
   {|
     circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
     circuit_with_wf_and_spec_spec_statement :=
-      forall (inputs : bitvec (circuit_input_count c_parent))
-        (parent_intermediates : bitvec (circuit_wire_count c_parent))
-        (child_inputs : bitvec (circuit_input_count (circuit_with_wf_circuit c_child_with_wf)))
-        (child_outputs : bitvec (length_bin (circuit_output_wires (circuit_with_wf_circuit c_child_with_wf)))),
-      parent_intermediates ~= circuit_with_wf_compute_wires_vec c_parent_with_wf inputs ->
+      forall (inputs : bitvec (circuit_input_count c_parent)),
+      let parent_intermediates := circuit_with_wf_compute_wires_vec c_parent_with_wf inputs in
+      forall (child_inputs : bitvec (circuit_input_count c_child))
+        (child_outputs : bitvec (length_bin (circuit_output_wires c_child))),
       child_inputs ~=
         vector_map
           (reference_compute (vector_list inputs) (vector_list parent_intermediates))
           input_references ->
-      child_outputs ~= circuit_with_wf_compute_wires_vec c_child_with_wf child_inputs ->
-      circuit_with_wf_compute_wires_vec c_res_with_wf inputs ~=
-        (parent_intermediates ++ child_outputs)%vector;
+      let res_intermediates := circuit_with_wf_compute_wires_vec c_res_with_wf inputs in
+      child_outputs ~= circuit_with_wf_compute_vec c_child_with_wf child_inputs ->
+      vector_select_bin res_intermediates
+        (vector_seq_bin 0 (circuit_wire_count c_parent)) false ~= parent_intermediates /\
+      vector_select_bin (
+        vector_select_bin res_intermediates
+          (vector_seq_bin (circuit_wire_count c_parent) (circuit_wire_count c_child)) false
+      ) (vector_of_list (circuit_output_wires c_child)) false ~= child_outputs;
   |}.
 Next Obligation.
-  intros c_parent_with_wf c_child_with_wf input_references H1 c_parent c_parent_wf c_child c_child_wf
-    H' c_res_with_wf inputs parent_intermediates child_inputs child_outputs H2 H3 H4.
-  unfold circuit_with_wf_compute_wires_vec, vector_similar in H2, H4 |- *; simpl in H2, H4 |- *.
-  rewrite H4, H3, H2. apply circuit_add_spec_wires.
-  - apply c_parent_wf.
-  - apply c_child_wf.
-  - apply (vector_wf input_references).
-  - apply H'.
-  - apply (vector_wf inputs).
+  intros c_parent_with_wf c_child_with_wf input_references H c_parent c_parent_wf c_child c_child_wf
+    H' c_res_with_wf inputs parent_intermediates child_inputs child_outputs H1 res_intermediates H2.
+  pose (child_intermediates := circuit_with_wf_compute_wires_vec c_child_with_wf child_inputs).
+  cut (res_intermediates ~= parent_intermediates ++ child_intermediates).
+  - intros H3. unfold vector_select_bin. rewrite H3. unfold vector_similar; simpl.
+    subst c_parent. rewrite <- (vector_wf parent_intermediates). simpl. split.
+    + apply list_select_bin_app_1_seq.
+    + subst c_child. rewrite <- (vector_wf child_intermediates). rewrite list_select_bin_app_2_seq. auto.
+  - unfold circuit_with_wf_compute_wires_vec, vector_similar in parent_intermediates, child_intermediates |- *;
+      simpl in parent_intermediates, child_intermediates |- *.
+    subst c_child. rewrite H1. apply circuit_add_spec_wires.
+    + apply c_parent_wf.
+    + apply c_child_wf.
+    + apply (vector_wf input_references).
+    + apply H'.
+    + apply (vector_wf inputs).
 Qed.
 
 Register circuit_add_with_wf_and_spec as vcpu.circuit.add_with_wf_and_spec.

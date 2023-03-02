@@ -788,6 +788,14 @@ Proof.
   intros s n. unfold list_seq_bin. rewrite list_seq_to_simple. rewrite ? List.map_map. apply List.map_ext. lia.
 Qed.
 
+Lemma list_seq_bin_shift :
+  forall s n,
+  List.map N.succ (list_seq_bin s n) = list_seq_bin (N.succ s) n.
+Proof.
+  intros s n. unfold list_seq_bin. rewrite Nnat.N2Nat.inj_succ. rewrite <- List.seq_shift.
+  rewrite ? List.map_map. apply List.map_ext. intros i. symmetry. apply Nnat.Nat2N.inj_succ.
+Qed.
+
 Lemma list_forall_list_seq_bin :
   forall f s n,
   list_forall f (list_seq_bin s n) <-> forall i, (i < n)%N -> f (s + i)%N.
@@ -860,7 +868,7 @@ Proof.
   - simpl. rewrite <- List.seq_shift. rewrite List.map_map. rewrite IH. auto.
 Qed.
 
-Lemma list_select_com :
+Lemma list_select_assoc :
   forall {A} l1 l2 l3 (default : A),
   list_forall (fun i => i < length l2) l3 ->
   list_select l1 (list_select l2 l3 0) default =
@@ -890,6 +898,28 @@ Proof.
   - simpl. rewrite list_nth_bin_zero_cons. rewrite <- List.seq_shift. rewrite List.map_map.
     rewrite <- IH at 2. f_equal. apply List.map_ext. intros i. rewrite Nnat.Nat2N.inj_succ.
     apply list_nth_bin_succ_cons.
+Qed.
+
+Lemma list_select_bin_app_1_seq :
+  forall {A} values_1 values_2 (default : A),
+  list_select_bin (values_1 ++ values_2) (list_seq_bin 0 (length_bin values_1)) default = values_1.
+Proof.
+  intros A values_1 values_2 default. unfold list_select_bin. induction values_1 as [ | x values_1' IH].
+  - auto.
+  - simpl. rewrite length_bin_cons, list_seq_bin_succ, <- list_seq_bin_shift. simpl.
+    rewrite List.map_map. f_equal. rewrite <- IH at 2. apply List.map_ext. intros i.
+    rewrite list_nth_bin_succ_cons. auto.
+Qed.
+
+Lemma list_select_bin_app_2_seq :
+  forall {A} values_1 values_2 (default : A),
+  list_select_bin (values_1 ++ values_2) (list_seq_bin (length_bin values_1) (length_bin values_2)) default =
+    values_2.
+Proof.
+  intros A values_1 values_2 default. unfold list_select_bin. induction values_1 as [ | x values_1' IH].
+  - simpl. rewrite <- (list_select_bin_app_1_seq values_2 [] default) at 2. rewrite List.app_nil_r. auto.
+  - simpl. rewrite length_bin_cons, <- list_seq_bin_shift. rewrite List.map_map. rewrite <- IH at 2.
+    apply List.map_ext. intros i. rewrite list_nth_bin_succ_cons. auto.
 Qed.
 
 Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=

@@ -18,6 +18,9 @@ Compute vector_list (serialize_pair_bool_bool (true, false)).
 Serialize (vector (option comparison) 2 * bool) as serialize_pair_vector_option_comparison_2_bool.
 Serialize (bitvec 100) as serialize_bitvec_100.
 
+Definition test0 := true.
+Compile test0.
+
 Unset Program Cases.
 
 #[program] Definition test1 (bv : bitvec 1) : bitvec 5 := let v := {|

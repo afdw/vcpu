@@ -4,6 +4,7 @@ Require Import Lia.
 Require Coq.Lists.List.
 Import List.ListNotations.
 Import Coq.NArith.BinNat.
+Import EqNotations.
 
 Record vector {A n} := {
   vector_list : list A;
@@ -97,6 +98,8 @@ Definition vector_dest {A n} (v : vector A (N.succ n)) : A * vector A n :=
 
 Register vector_dest as vcpu.vector.dest.
 
+Definition vector_of_list {A} (l : list A) : vector A (length_bin l) := mk_vector l eq_refl.
+
 #[program] Definition vector_app {A n1 n2} (v1 : vector A n1) (v2 : vector A n2) : vector A (n1 + n2) :=
   mk_vector (vector_list v1 ++ vector_list v2) _.
 Next Obligation.
@@ -117,8 +120,15 @@ Proof.
   intros A n1 n2 v_list_1 v_list_2 v_wf_1 v_wf_2. unfold vector_app. apply mk_vector_ext.
 Qed.
 
-Definition vector_select_bin_vec {A n} (values : vector A n) indices default : vector A (length_bin indices) :=
-  mk_vector (list_select_bin (vector_list values) indices default) (length_bin_list_select_bin _ _ _).
+Definition vector_seq_bin s n : vector binnat n :=
+  mk_vector (list_seq_bin s n) (length_bin_list_seq_bin s n).
+
+Definition vector_select_bin {A n m} (values : vector A n) (indices : vector binnat m) default : vector A m :=
+  mk_vector
+    (list_select_bin (vector_list values) (vector_list indices) default)
+    (rew vector_wf indices in length_bin_list_select_bin _ _ _).
+
+Register vector_select_bin as vcpu.vector.select_bin.
 
 #[program] Definition vector_map {A B n} f (v : vector A n) : vector B n :=
   mk_vector (List.map f (vector_list v)) _.
