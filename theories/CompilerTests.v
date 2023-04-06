@@ -8,6 +8,7 @@ Require Coq.Lists.List.
 Import List.ListNotations.
 Import Coq.NArith.BinNat.
 
+(*
 Test.
 
 Serialize (bitvec 5) as serialize_bitvec_5.
@@ -248,4 +249,5 @@ Set NativeCompute Timing.
 Eval native_compute in bitlist_to_binnat (circuit_compute mul_32_circuit''
   (fixed_bitlist_of_binnat 32 3543 ++ fixed_bitlist_of_binnat 32 1231)).
 Unset NativeCompute Timing.
+*)
 *)

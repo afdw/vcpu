@@ -649,7 +649,141 @@ Proof.
   intros i b H6. do 2 f_equal. apply (circuit_add_translate_binding_spec _ _ _ H1 H2 H3 H4 _ H5 _ _ _ H6).
 Qed.
 
-#[program] Definition circuit_add_with_wf_and_spec
+#[program] Definition circuit_add_with_wf_and_spec {n m}
+  c_parent_with_wf c_child_with_wf
+  (e_inputs_sub : extractor (circuit_input_count (circuit_with_wf_circuit c_parent_with_wf)) n)
+  (e_parent_intermediates_sub : extractor (circuit_wire_count (circuit_with_wf_circuit c_parent_with_wf)) m)
+  (input_reference_indexes : list binnat)
+  : circuit_with_wf_and_spec :=
+  let c_parent := circuit_with_wf_circuit c_parent_with_wf in
+  let c_parent_wf := circuit_with_wf_circuit_wf c_parent_with_wf in
+  let c_child := circuit_with_wf_circuit c_child_with_wf in
+  let c_child_wf := circuit_with_wf_circuit_wf c_child_with_wf in
+  let input_references :=
+    List.concat (
+      list_select_bin (
+        List.map (List.map reference_Input) (extractor_transitions_to_list e_inputs_sub) ++
+        List.map (List.map reference_Wire) (extractor_transitions_to_list e_parent_intermediates_sub)
+      )
+      input_reference_indexes []
+    ) in
+  let c_res_with_wf := {|
+    circuit_with_wf_circuit := circuit_add c_parent c_child input_references;
+    circuit_with_wf_circuit_wf :=
+      circuit_add_wf c_parent c_child input_references c_parent_wf c_child_wf _ _;
+  |} in
+  {|
+    circuit_with_wf_and_spec_circuit_with_wf := c_res_with_wf;
+    circuit_with_wf_and_spec_spec_statement :=
+      forall
+        (inputs : bitvec (circuit_input_count c_parent))
+        inputs_sub_ideals
+        parent_intermediates_sub_ideals
+        (child_outputs_ideal : bitvec (length_bin (circuit_output_wires c_child))),
+      extractor_spec e_inputs_sub inputs_sub_ideals inputs ->
+      let parent_intermediates := circuit_with_wf_compute_wires_vec c_parent_with_wf inputs in
+      extractor_spec e_parent_intermediates_sub parent_intermediates_sub_ideals parent_intermediates ->
+      let child_inputs :=
+        mk_vector (
+          List.concat (
+            list_select_bin (
+              extractor_ideals_to_list e_inputs_sub inputs_sub_ideals ++
+              extractor_ideals_to_list e_parent_intermediates_sub parent_intermediates_sub_ideals
+            )
+            input_reference_indexes []
+          )
+        ) _ in
+      let child_outputs := circuit_with_wf_compute_vec c_child_with_wf child_inputs in
+      child_outputs ~= child_outputs_ideal ->
+      let res_intermediates := circuit_with_wf_compute_wires_vec c_res_with_wf inputs in
+      extractor_spec
+        (extractor_cons _ (vector_of_list (
+          List.map (fun i => (circuit_wire_count c_parent + i)%N) (circuit_output_wires c_child)
+        )) _ (extractor_increase_input_count e_parent_intermediates_sub (circuit_wire_count c_child)))
+        (child_outputs_ideal, parent_intermediates_sub_ideals) res_intermediates;
+  |}.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
+Next Obligation.
+  intros. simpl. rewrite list_forall_list_map. apply (list_forall_incr _ _ _ (proj2 (proj2 c_child_wf))).
+  subst c_parent c_child. lia.
+Qed.
+Next Obligation.
+  intros. symmetry. apply length_bin_list_map.
+Qed.
+Next Obligation.
+  intros. apply extractor_spec_structure_cons. split.
+  - admit.
+  - admit.
+Admitted.
+
+(*#[program] Definition circuit_add_with_wf_and_spec {n}
+  c_parent_with_wf c_child_with_wf
+  (e_parent_intermediates_sub : extractor (circuit_wire_count (circuit_with_wf_circuit c_parent_with_wf)) n)
+  (e_input_references :
+    extractor
+    (
+      circuit_input_count (circuit_with_wf_circuit c_parent_with_wf) +
+      n
+    )
+    (circuit_input_count (circuit_with_wf_circuit c_child_with_wf))
+  )
+  : circuit_with_wf_and_spec :=
+  let c_parent := circuit_with_wf_circuit c_parent_with_wf in
+  let c_parent_wf := circuit_with_wf_circuit_wf c_parent_with_wf in
+  let c_child := circuit_with_wf_circuit c_child_with_wf in
+  let c_child_wf := circuit_with_wf_circuit_wf c_child_with_wf in
+  let c_res_with_wf := _ in
+  {|
+    circuit_with_wf_and_spec_spec_statement :=
+      forall
+        (inputs : bitvec (circuit_input_count c_parent))
+        parent_intermediates_sub_ideals
+        child_inputs_ideals
+        (child_outputs_ideal : bitvec (length_bin (circuit_output_wires c_child))),
+      let parent_intermediates := circuit_with_wf_compute_wires_vec c_parent_with_wf inputs in
+      extractor_spec e_parent_intermediates_sub parent_intermediates_sub_ideals parent_intermediates ->
+      let parent_intermediates_sub :=
+        extractor_flatten_ideals e_parent_intermediates_sub parent_intermediates_sub_ideals in
+      extractor_spec e_input_references child_inputs_ideals (inputs ++ parent_intermediates_sub) ->
+      let child_inputs := extractor_flatten_ideals e_input_references child_inputs_ideals in
+      let child_outputs := circuit_with_wf_compute_vec c_child_with_wf child_inputs in
+      child_outputs ~= child_outputs_ideal ->
+      let res_intermediates := circuit_with_wf_compute_wires_vec c_res_with_wf inputs in
+      extractor_spec
+        (extractor_cons _ (vector_of_list (
+          List.map (fun i => (circuit_wire_count c_parent + i)%N) (circuit_output_wires c_child)
+        )) _ (extractor_increase_input_count e_parent_intermediates_sub (circuit_wire_count c_child)))
+        (child_outputs_ideal, parent_intermediates_sub_ideals) res_intermediates;
+  |}.
+Next Obligation.
+Admitted.
+Next Obligation.
+  intros. f_equal. apply (extractor_lengths_wf e_parent_intermediates_sub).
+Qed.
+Next Obligation.
+  intros. apply (extractor_lengths_wf e_input_references).
+Qed.
+Next Obligation.
+  intros. simpl. rewrite list_forall_list_map. apply (list_forall_incr _ _ _ (proj2 (proj2 c_child_wf))).
+  subst c_parent c_child. lia.
+Qed.
+Next Obligation.
+  intros. symmetry. apply length_bin_list_map.
+Qed.
+Next Obligation.
+Admitted.
+Next Obligation.
+  intros. apply extractor_spec_structure_cons. split.
+  - admit.
+  - admit.
+Admitted.*)
+
+(*#[program] Definition circuit_add_with_wf_and_spec
   c_parent_with_wf c_child_with_wf
   (input_references : vector reference (circuit_input_count (circuit_with_wf_circuit c_child_with_wf)))
   (H :
@@ -689,10 +823,10 @@ Qed.
       child_outputs ~= circuit_with_wf_compute_vec c_child_with_wf child_inputs ->
       vector_select_bin res_intermediates
         (vector_seq_bin 0 (circuit_wire_count c_parent)) false ~= parent_intermediates /\
-      vector_select_bin (
-        vector_select_bin res_intermediates
-          (vector_seq_bin (circuit_wire_count c_parent) (circuit_wire_count c_child)) false
-      ) (vector_of_list (circuit_output_wires c_child)) false ~= child_outputs;
+      vector_select_bin res_intermediates
+        (vector_of_list (
+          List.map (fun i => (circuit_wire_count c_parent + i)%N) (circuit_output_wires c_child)
+        )) false ~= child_outputs;
   |}.
 Next Obligation.
   intros c_parent_with_wf c_child_with_wf input_references H c_parent c_parent_wf c_child c_child_wf
@@ -700,9 +834,21 @@ Next Obligation.
   pose (child_intermediates := circuit_with_wf_compute_wires_vec c_child_with_wf child_inputs).
   cut (res_intermediates ~= parent_intermediates ++ child_intermediates).
   - intros H3. unfold vector_select_bin. rewrite H3. unfold vector_similar; simpl.
-    subst c_parent. rewrite <- (vector_wf parent_intermediates). simpl. split.
-    + apply list_select_bin_app_1_seq.
-    + subst c_child. rewrite <- (vector_wf child_intermediates). rewrite list_select_bin_app_2_seq. auto.
+    simpl. split.
+    + subst c_parent. rewrite <- (vector_wf parent_intermediates). apply list_select_bin_app_1_seq.
+    + cut (
+        vector_select_bin (
+          vector_select_bin (parent_intermediates ++ child_intermediates)
+            (vector_seq_bin (circuit_wire_count c_parent) (circuit_wire_count c_child)) false
+        ) (vector_of_list (circuit_output_wires c_child)) false ~= child_outputs
+      ).
+      * intros H4. rewrite <- H4. simpl. rewrite <- list_select_bin_assoc. f_equal. unfold list_select_bin.
+        apply list_map_ext_precise. apply (list_forall_incr _ _ _ (proj2 (proj2 c_child_wf))). intros i H5.
+        symmetry. apply list_nth_bin_list_seq_bin. auto.
+      * unfold vector_similar; simpl.
+        subst c_parent. rewrite <- (vector_wf parent_intermediates).
+        subst c_child. rewrite <- (vector_wf child_intermediates).
+        rewrite list_select_bin_app_2_seq. auto.
   - unfold circuit_with_wf_compute_wires_vec, vector_similar in parent_intermediates, child_intermediates |- *;
       simpl in parent_intermediates, child_intermediates |- *.
     subst c_child. rewrite H1. apply circuit_add_spec_wires.
@@ -711,7 +857,7 @@ Next Obligation.
     + apply (vector_wf input_references).
     + apply H'.
     + apply (vector_wf inputs).
-Qed.
+Qed.*)
 
 Register circuit_add_with_wf_and_spec as vcpu.circuit.add_with_wf_and_spec.
 

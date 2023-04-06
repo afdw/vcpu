@@ -149,3 +149,115 @@ Qed.
 Set Program Cases.
 
 Definition vector_and {n} (bv1 bv2 : bitvec n) : bitvec n := vector_map2 andb bv1 bv2.
+
+Fixpoint extractor_transitions_wf_aux {n} e_lengths
+  (e_transitions : htype (List.map (vector binnat : _ -> Type) e_lengths))
+  : Prop :=
+  match e_lengths, e_transitions with
+  | [], tt => True
+  | e_length :: e_lengths', (e_transition, e_transitions') =>
+    list_forall (fun i => (i < n)%N) (vector_list e_transition) /\
+      extractor_transitions_wf_aux (n := n) e_lengths' e_transitions'
+  end.
+
+Record extractor {n m} := {
+  extractor_lengths : list binnat;
+  extractor_transitions : htype (List.map (vector binnat : _ -> Type) extractor_lengths);
+  extractor_lengths_wf : sum extractor_lengths = m;
+  extractor_transitions_wf :
+    extractor_transitions_wf_aux (n := n) extractor_lengths extractor_transitions;
+}.
+
+Arguments extractor : clear implicits.
+
+Fixpoint extractor_offsets_concat_aux e_lengths
+  (e_transitions : htype (List.map (vector binnat : _ -> Type) e_lengths))
+  : vector binnat (sum e_lengths) :=
+  match e_lengths, e_transitions with
+  | [], tt => [||]
+  | e_length :: e_lengths', (e_transition, e_transitions') =>
+    (e_transition ++ extractor_offsets_concat_aux e_lengths' e_transitions')%vector
+  end.
+
+Definition extractor_offsets_concat {n m} (e : extractor n m) :=
+  extractor_offsets_concat_aux (extractor_lengths e) (extractor_transitions e).
+
+Definition extractor_apply {n m} (s : extractor n m) (v : bitvec n) :=
+  vector_select_bin v (extractor_offsets_concat s) false.
+
+Fixpoint extractor_spec_aux {n} e_lengths
+  (e_transitions : htype (List.map (vector binnat : _ -> Type) e_lengths))
+  (ideals : htype (List.map (bitvec : _ -> Type) e_lengths))
+  (v : bitvec n)
+  : Prop :=
+  match e_lengths, e_transitions, ideals with
+  | [], tt, tt => True
+  | e_length :: e_lengths', (e_transition, e_stransisions'), (ideal, ideals') =>
+    vector_select_bin v e_transition false ~= ideal /\
+      extractor_spec_aux e_lengths' e_stransisions' ideals' v
+  end.
+
+Definition extractor_spec {n m} (e : extractor n m) ideals (v : bitvec n) :=
+  extractor_spec_aux (extractor_lengths e) (extractor_transitions e) ideals v.
+
+Fixpoint extractor_flatten_aux {A} e_lengths
+  (fragments : htype (List.map (vector A) e_lengths))
+  : vector A (sum e_lengths) :=
+  match e_lengths, fragments with
+  | [], tt => [||]
+  | e_length :: e_lengths', (fragment, fragments') =>
+    (fragment ++ extractor_flatten_aux e_lengths' fragments')%vector
+  end.
+
+Definition extractor_flatten_transitions {n m} (e : extractor n m) :=
+  extractor_flatten_aux (extractor_lengths e) (extractor_transitions e).
+
+Definition extractor_flatten_ideals {n m} (e : extractor n m) ideals :=
+  extractor_flatten_aux (A := bool) (extractor_lengths e) ideals.
+
+Fixpoint extractor_to_list_aux e_lengths {A} (fragments : htype (List.map (vector A) e_lengths)) :=
+  match e_lengths, fragments with
+  | [], tt => []
+  | e_length :: e_lengths', (fragment, fragments') =>
+    vector_list fragment :: extractor_to_list_aux e_lengths' fragments'
+  end.
+
+Definition extractor_transitions_to_list {n m} (e : extractor n m) :=
+  extractor_to_list_aux (extractor_lengths e) (extractor_transitions e).
+
+Definition extractor_ideals_to_list {n m} (e : extractor n m) ideals :=
+  extractor_to_list_aux (A := bool) (extractor_lengths e) ideals.
+
+#[program] Definition extractor_increase_input_count {n m} (e : extractor n m)
+  additional_input_count : extractor (n + additional_input_count) m := {|
+  extractor_lengths := extractor_lengths e;
+  extractor_transitions := extractor_transitions e;
+  extractor_lengths_wf := extractor_lengths_wf e;
+|}.
+Next Obligation.
+  intros n m e additional_input_count. destruct e as (e_lengths, e_transitions, H1, H2). simpl. clear H1.
+  induction e_lengths as [ | e_length e_lengths' IH].
+  - auto.
+  - simpl. simpl in H2. destruct e_transitions as (e_transition, e_transitions'). destruct H2 as (H1 & H2). split.
+    + apply (list_forall_incr _ _ _ H1). lia.
+    + apply IH. auto.
+Qed.
+
+Definition extractor_cons {n m} e_length
+  (e_transition : vector binnat e_length)
+  (e_transition_wf : list_forall (fun i => (i < n)%N) (vector_list e_transition)) (e : extractor n m)
+  : extractor n (e_length + m) := {|
+  extractor_lengths := e_length :: extractor_lengths e;
+  extractor_transitions := (e_transition, extractor_transitions e);
+  extractor_lengths_wf := f_equal_2_plus_bin _ _ _ _ eq_refl (extractor_lengths_wf e);
+  extractor_transitions_wf := conj e_transition_wf (extractor_transitions_wf e);
+|}.
+
+Lemma extractor_spec_structure_cons :
+  forall {n m} e_length e_transition e_transition_wf (e : extractor n m) ideal ideals' (v : bitvec n),
+  extractor_spec (extractor_cons e_length e_transition e_transition_wf e) (ideal, ideals') v <->
+    vector_select_bin v e_transition false ~= ideal /\ extractor_spec e ideals' v.
+Proof.
+  intros n m e_length e_transition e_transition_wf e ideal ideals' v.
+  unfold extractor_cons, extractor_spec. simpl. intuition auto.
+Qed.

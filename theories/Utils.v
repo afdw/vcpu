@@ -69,6 +69,17 @@ Proof.
   intros n. unfold normalize_eq_binnat. rewrite binnat_eq_dec_eq_refl. auto.
 Qed.
 
+Lemma f_equal_2_plus_bin :
+  forall x1 y1 x2 y2,
+  x1 = y1 ->
+  x2 = y2 ->
+  (x1 + x2 = y1 + y2)%N.
+Proof.
+  lia.
+Qed.
+
+Definition sum n := List.fold_right N.add 0%N n.
+
 Infix "^^" := xorb (at level 40, left associativity) : bool_scope.
 
 Definition nandb b1 b2 := negb (b1 && b2).
@@ -190,6 +201,24 @@ Lemma list_app_bin_nth_2_add :
 Proof.
   unfold length_bin, list_nth_bin. intros A i l1 l2 default. rewrite Nnat.N2Nat.inj_add. rewrite Nnat.Nat2N.id.
   apply List.app_nth2_plus.
+Qed.
+
+Lemma list_nth_bin_list_nth_bin_list_nth_bin_list_map :
+  forall {A} (l : list A) ln dn n default,
+  (n < length_bin ln \/ length_bin l <= dn)%N ->
+  list_nth_bin (list_nth_bin n ln dn) l default =
+    list_nth_bin n (List.map (fun i => list_nth_bin i l default) ln) default.
+Proof.
+  intros A l ln dn n default H. unfold list_nth_bin.
+  replace ln with (List.map N.of_nat (List.map N.to_nat ln)) at 2.
+  - rewrite List.map_map.
+    replace (List.map (fun x => List.nth (N.to_nat (N.of_nat x)) l default) (List.map N.to_nat ln))
+      with (List.map (fun x => List.nth x l default) (List.map N.to_nat ln)).
+    + rewrite <- List.nth_nth_nth_map with (dn := N.to_nat dn).
+      * rewrite List.map_nth. auto.
+      * rewrite List.map_length. unfold length_bin in H. lia.
+    + apply List.map_ext. intros i. rewrite Nnat.Nat2N.id. auto.
+  - rewrite List.map_map. rewrite <- List.map_id. apply List.map_ext. lia.
 Qed.
 
 Fixpoint list_forall {A} f (l : list A) :=
@@ -815,6 +844,16 @@ Proof.
   intros y z. f_equal. lia.
 Qed.
 
+Lemma list_nth_bin_list_seq_bin:
+  forall s n i default,
+  (i < n)%N ->
+  list_nth_bin i (list_seq_bin s n) default = (s + i)%N.
+Proof.
+  intros s n i default H. unfold list_nth_bin, list_seq_bin.
+  replace default with (N.of_nat (N.to_nat default)) by lia.
+  rewrite List.map_nth. rewrite List.seq_nth; lia.
+Qed.
+
 Lemma length_bin_list_init_bin :
   forall {A} (f : _ -> A) n,
   length_bin (list_init_bin f n) = n.
@@ -870,12 +909,11 @@ Qed.
 
 Lemma list_select_assoc :
   forall {A} l1 l2 l3 (default : A),
-  list_forall (fun i => i < length l2) l3 ->
-  list_select l1 (list_select l2 l3 0) default =
+  list_select l1 (list_select l2 l3 (length l1)) default =
   list_select (list_select l1 l2 default) l3 default.
 Proof.
-  intros A l1 l2 l3 default H. unfold list_select. rewrite List.map_map. apply list_map_ext_precise.
-  apply (list_forall_incr _ _ _ H). intros i H1. apply List.nth_nth_nth_map. auto.
+  intros A l1 l2 l3 default. unfold list_select. rewrite List.map_map. apply List.map_ext.
+  intros i. apply List.nth_nth_nth_map. auto.
 Qed.
 
 Definition list_select_bin {A} values indices (default : A) :=
@@ -920,6 +958,15 @@ Proof.
   - simpl. rewrite <- (list_select_bin_app_1_seq values_2 [] default) at 2. rewrite List.app_nil_r. auto.
   - simpl. rewrite length_bin_cons, <- list_seq_bin_shift. rewrite List.map_map. rewrite <- IH at 2.
     apply List.map_ext. intros i. rewrite list_nth_bin_succ_cons. auto.
+Qed.
+
+Lemma list_select_bin_assoc :
+  forall {A} l1 l2 l3 (default : A),
+  list_select_bin l1 (list_select_bin l2 l3 (length_bin l1)) default =
+  list_select_bin (list_select_bin l1 l2 default) l3 default.
+Proof.
+  intros A l1 l2 l3 default. unfold list_select_bin. rewrite List.map_map. apply List.map_ext.
+  intros i. apply list_nth_bin_list_nth_bin_list_nth_bin_list_map. lia.
 Qed.
 
 Fixpoint list_fold_left2 {A B C} (f : A -> B -> C -> A) (l1 : list B) (l2 : list C) (x : A) : A :=
@@ -1004,3 +1051,6 @@ Definition bitlist_of_binnat n :=
 
 Definition fixed_bitlist_of_binnat n m :=
   list_truncate n (bitlist_of_binnat m) false.
+
+Definition htype (l : list Type) : Type :=
+  List.fold_right (fun t t_res => (t * t_res)%type) unit l.
