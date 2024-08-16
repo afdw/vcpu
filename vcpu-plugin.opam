@@ -8,7 +8,7 @@ homepage: "https://github.com/afdw/vcpu"
 bug-reports: "https://github.com/afdw/vcpu/issues"
 depends: [
   "ocaml"
-  "dune" {>= "3.6"}
+  "dune" {>= "3.8"}
   "coq-core"
   "odoc" {with-doc}
 ]

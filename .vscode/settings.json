@@ -1,0 +1,3 @@
+{
+    "vscoq.path": "dune coq top --toplevel vscoqtop theories/CompilerTests.v --"
+}

@@ -1,4 +1,4 @@
-(lang dune 3.6)
+(lang dune 3.8)
 
 (name vcpu-plugin)
 
@@ -11,7 +11,7 @@
 
 (maintainers "Anton Danilkin")
 
-(using coq 0.6)
+(using coq 0.8)
 
 (package
  (name vcpu-plugin)

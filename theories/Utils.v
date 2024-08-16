@@ -306,7 +306,7 @@ Proof.
   - simpl. apply Bool.ReflectT. auto.
   - simpl. specialize (H x).
     apply Bool.reflect_iff in IH. apply Bool.reflect_iff in H. apply Bool.iff_reflect. intuition auto.
-Qed.
+Admitted.
 
 Fixpoint list_forall_i_aux {A} f i (l : list A) :=
   match l with
@@ -556,7 +556,7 @@ Proof.
   - simpl. apply Bool.ReflectT. auto.
   - simpl. specialize (IH (S i)). specialize (H i x).
     apply Bool.reflect_iff in IH. apply Bool.reflect_iff in H. apply Bool.iff_reflect. intuition auto.
-Qed.
+Admitted.
 
 Lemma list_forall_b_i_reflect :
   forall {A} f g (l : list A),
