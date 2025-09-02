@@ -1,8 +1,8 @@
 (library
- (name vcpu_plugin)
- (public_name vcpu-plugin.plugin)
- (flags :standard -rectypes -w -27)
- (libraries coq-core.vernac))
+ (name vcpu)
+ (public_name vcpu.plugin)
+ (flags :standard -w -27) 
+ (libraries rocq-runtime.vernac))
 
 (coq.pp
  (modules syntax))

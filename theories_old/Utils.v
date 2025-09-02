@@ -1,11 +1,15 @@
+Require Import Utf8.
 Require Import Btauto.
 Require Import Lia.
 Require Coq.Lists.List.
 Import List.ListNotations.
+Require Coq.Strings.String.
+Import String.StringSyntax.
 Import Coq.NArith.BinNat.
 
 #[global] Obligation Tactic := idtac.
 
+Open Scope string_scope.
 Open Scope list_scope.
 Open Scope bool_scope.
 

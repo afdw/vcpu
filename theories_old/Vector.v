@@ -98,6 +98,10 @@ Definition vector_dest {A n} (v : vector A (N.succ n)) : A * vector A n :=
 
 Register vector_dest as vcpu.vector.dest.
 
+(* Recursion Schema  *)
+
+(* Definition vector_case {A n} (v : vector A n) :  *)
+
 Definition vector_of_list {A} (l : list A) : vector A (length_bin l) := mk_vector l eq_refl.
 
 #[program] Definition vector_app {A n1 n2} (v1 : vector A n1) (v2 : vector A n2) : vector A (n1 + n2) :=

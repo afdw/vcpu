@@ -1,0 +1,8 @@
+(library
+ (name vcpu_plugin)
+ (public_name vcpu-plugin.plugin)
+ (flags :standard -rectypes -w -27)
+ (libraries coq-core.vernac))
+
+(coq.pp
+ (modules syntax))

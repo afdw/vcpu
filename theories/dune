@@ -1,4 +1,4 @@
 (coq.theory
- (name VcpuPlugin)
- (package vcpu-plugin)
- (plugins vcpu-plugin.plugin))
+ (name Vcpu)
+ (package vcpu)
+ (plugins vcpu.plugin))

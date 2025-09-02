@@ -1,4 +1,7 @@
-/old.txt
+*.lia.cache
+
 /_build
-.lia.cache
 /payload/rootfs/rootfs.ext2
+
+/old.txt
+/old

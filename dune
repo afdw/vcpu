@@ -1,4 +1,5 @@
 (env
   (dev
     (flags (:standard -warn-error -A))))
-(dirs :standard \ payload)
+
+(dirs :standard \ payload theories_old src_old)
