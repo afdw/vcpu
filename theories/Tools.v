@@ -120,6 +120,11 @@ Notation "[||]" := {| vector_l := []; vector_wf_l := eq_refl |} (at level 1) : v
 Notation "[ | x | ]" := {| vector_l := [x]; vector_wf_l := eq_refl |} (at level 1, format "[ | x | ]") : vector_scope.
 Notation "[ | x ; y ; .. ; z | ]" := {| vector_l := cons x (cons y .. [z] ..); vector_wf_l := eq_refl |} (at level 1, format "[ | x ;  y ;  .. ;  z | ]") : vector_scope.
 
+Register vector as vcpu.vector.type.
+Register Build_vector as vcpu.vector.constructor.
+Register vector_l as vcpu.vector.l.
+Register vector_wf_l as vcpu.vector.wf_l.
+
 Lemma irrelevant_vector {A n} :
   ∀ u v : vector A n,
   vector_l u = vector_l v →
@@ -129,6 +134,13 @@ Proof.
   destruct H_l. f_equal. remember (length u_l) as m eqn:H_m; clear u_l H_m.
   destruct v_wf_l. apply UIP_refl_nat.
 Defined.
+
+Definition vector_repeat {A} (x : A) n : vector A n := {|
+  vector_l := List.repeat x n;
+  vector_wf_l := List.repeat_length _ _;
+|}.
+
+Register vector_repeat as vcpu.vector.repeat.
 
 #[program]
 Definition vector_app {A n m} (u : vector A n) (v : vector A m) : vector A (n + m) := {|
@@ -142,7 +154,6 @@ Notation "u  +||+  v" := (vector_app u v) (at level 60, right associativity) : v
 
 Register vector_app as vcpu.vector.app.
 
-#[program]
 Definition vector_sub {A n} m k (u : vector A n) default : vector A k := {|
   vector_l := list_sub m k (vector_l u) default;
   vector_wf_l := list_length_list_sub _ _ _ _;

@@ -1,10 +1,14 @@
-DECLARE PLUGIN "vcpu-plugin"
+DECLARE PLUGIN "vcpu.plugin"
 
 {
   open Stdarg
 }
 
 VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
+| [ "Vcpu" "Derive" "Encode" "for" constr(input_typ) ] ->
+  {
+    Compiler.entry_derive_encode input_typ
+  }
 | [ "Test" ] ->
   {
     Compiler.entry_test ()
