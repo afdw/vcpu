@@ -15,4 +15,12 @@ About list.
 
 (* Test. *)
 
-Vcpu Derive Encode for (sum bool bool).
+(* Set Printing All. *)
+
+Vcpu Derive Encoder for bool as bool.
+
+Vcpu Derive Encoder for sum as sum.
+Check sum_len.
+Check sum_encode.
+
+Vcpu Derive Encoder for (sum bool bool).
