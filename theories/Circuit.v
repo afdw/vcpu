@@ -261,10 +261,39 @@ Proof.
 Admitted.
 
 Lemma circuit_eval_circuit_combine {n m k} :
-  ∀ (c_1 : circuit n m) (c_2 : circuit n k) inputs,
+  ∀ (c_1 : circuit n m) (c_2 : circuit n k),
+  circuit_wf c_1 →
+  circuit_wf c_2 →
+  ∀ inputs,
   circuit_eval (circuit_combine c_1 c_2) inputs = circuit_eval c_1 inputs +||+ circuit_eval c_2 inputs.
 Proof.
 Admitted.
+
+Lemma circuit_eval_circuit_combine_relative {n m k} :
+  ∀ (c_1 : circuit n m) (c_2 : circuit n k),
+  circuit_wf c_1 →
+  circuit_wf c_2 →
+  ∀ inputs u v,
+  circuit_eval c_1 inputs = u →
+  circuit_eval c_2 inputs = v →
+  circuit_eval (circuit_combine c_1 c_2) inputs = u +||+ v.
+Proof.
+  intros c_1 c_2 wf_c_1 wf_c_2 inputs u v H_c_1 H_c_2. rewrite circuit_eval_circuit_combine by auto. congruence.
+Qed.
+
+Lemma circuit_combine_cong {n m k} :
+  ∀ (c_1 c_1' : circuit n m) (c_2 c_2' : circuit n k),
+  c_1 = c_1' →
+  c_2 = c_2' →
+  circuit_combine c_1 c_2 = circuit_combine c_1' c_2'.
+Proof.
+  intros c_1 c_1' c_2 c_2' H_1 H_2. congruence.
+Qed.
+
+Register circuit_combine as vcpu.circuit.combine.
+Register circuit_wf_circuit_combine as vcpu.circuit.wf_combine.
+Register circuit_eval_circuit_combine_relative as vcpu.circuit.eval_combine_relative.
+Register circuit_combine_cong as vcpu.circuit.combine_cong.
 
 (* Compute circuit_combine (@Build_circuit 5 2 [wire_Id 0; wire_Id 1]) (@Build_circuit 5 2 [wire_Id 3; wire_Id 4]). *)
 (* Compute circuit_eval (circuit_sub 10 3 5) [|?[a]; ?[b]; ?[c]; ?[d]; ?[e]; ?[f]; ?[g]; ?[h]; ?[i]; ?[j]|].

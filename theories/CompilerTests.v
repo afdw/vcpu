@@ -28,8 +28,15 @@ Vcpu Derive Encoder for (sum bool bool).
 Vcpu Derive Encoder for option as option.
 
 Check @option_map.
+Check @pair.
+Check @inl.
 
-Definition I A (x : A) := x.
+Definition identity A (x : A) := x.
 
-Vcpu Derive Compilation for (I) with (F T (F R T)).
+(* Set Printing All. *)
+
+(* Vcpu Derive Compilation for identity with (F T (F R T)). *)
 (* Vcpu Derive Compilation for (@option_map) with (F T (F T (F (F T T) (F T T)))). *)
+(* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
+(* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
+Vcpu Derive Compilation for @inl with (F T (F T (F T T))).
