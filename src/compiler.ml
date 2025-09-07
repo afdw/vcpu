@@ -24,7 +24,7 @@ let rec compose_arrows (hyps : EConstr.t list) (concl : EConstr.t) : EConstr.t =
   | hyp :: hyps' -> EConstr.mkProd (EConstr.anonR, hyp, EConstr.Vars.lift 1 (compose_arrows hyps' concl))
 
 let econstr_substl_opt (sigma : Evd.evar_map) (ts : EConstr.t option list) (c : EConstr.t) : EConstr.t =
-  assert (ts |> CList.for_all_i (fun t_i t -> Option.has_some t || c |> EConstr.Vars.noccurn sigma (1 + t_i)) 0);
+  assert (ts |> CList.for_all_i (fun t_i t -> c |> EConstr.Vars.noccurn sigma (1 + t_i) || Option.has_some t) 0);
   c |> EConstr.Vars.substl (ts |> List.map (Option.default EConstr.mkProp))
 
 let get_ref (env : Environ.env) (s : string) : EConstr.t =
@@ -46,8 +46,14 @@ let mk_eq_type (env : Environ.env) (typ : EConstr.t) (x : EConstr.t) (y : EConst
 let mk_True_type (env : Environ.env) : EConstr.t =
   get_ref env "core.True.type"
 
+let mk_True_I (env : Environ.env) : EConstr.t =
+  get_ref env "core.True.I"
+
 let mk_unit_type (env : Environ.env) : EConstr.t =
   get_ref env "core.unit.type"
+
+let mk_unit_tt (env : Environ.env) : EConstr.t =
+  get_ref env "core.unit.tt"
 
 let mk_bool_type (env : Environ.env) : EConstr.t =
   get_ref env "core.bool.type"
@@ -71,7 +77,7 @@ let rec to_nat_constr (env : Environ.env) (n : int) : EConstr.t =
 let mk_nat_add (env : Environ.env) (n : EConstr.t) (m : EConstr.t) : EConstr.t =
   EConstr.mkApp (get_ref env "num.nat.add", [|n; m|])
 
-let prove_nat_eq (env : Environ.env) (n : EConstr.t) : EConstr.t =
+let prove_eq_nat (env : Environ.env) (n : EConstr.t) : EConstr.t =
   EConstr.mkApp (get_ref env "core.eq.refl", [|mk_nat_type env; n|])
 
 let rec to_list_constr (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) : EConstr.t =
@@ -102,7 +108,7 @@ let to_vector_constr (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) 
       typ;
       to_nat_constr env (l |> List.length);
       to_list_constr env typ l;
-      prove_nat_eq env (to_nat_constr env (l |> List.length));
+      prove_eq_nat env (to_nat_constr env (l |> List.length));
     |]
   )
 
@@ -451,18 +457,8 @@ type repr =
   | ReprTransformed
   | ReprFunctional of repr * repr
 
-let rec normalize_repr (repr : repr) : repr =
-  match repr with
-  | ReprRaw -> ReprRaw
-  | ReprTransformed -> ReprTransformed
-  | ReprFunctional (repr_1, repr_2) ->
-    match normalize_repr repr_1, normalize_repr repr_2 with
-    | ReprRaw, ReprRaw -> ReprRaw
-    | repr_1, repr_2 -> ReprFunctional (repr_1, repr_2)
-
 let dest_repr_functional (repr : repr) : repr * repr =
   match repr with
-  | ReprRaw -> ReprRaw, ReprRaw
   | ReprFunctional (repr_1, repr_2) -> repr_1, repr_2
   | _ -> assert false
 
@@ -518,13 +514,13 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
           (context_encoders |> List.map (Option.map (lift_encoder 3)))
         )
         (type_2 |> EConstr.Vars.liftn 3 2 |> EConstr.Vars.subst1 (EConstr.mkRel 3))
-        |> List.map (fun type_2_repr -> ReprFunctional (ReprTransformed, type_2_repr) |> normalize_repr)) @
+        |> List.map (fun type_2_repr -> ReprFunctional (ReprTransformed, type_2_repr))) @
       (enumerate_reprs
         (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (EConstr.anonR, type_1)))
         sigma
         (None :: (context_encoders |> List.map (Option.map (lift_encoder 1))))
         type_2
-        |> List.map (fun type_2_repr -> ReprFunctional (ReprRaw, type_2_repr) |> normalize_repr))
+        |> List.map (fun type_2_repr -> ReprFunctional (ReprRaw, type_2_repr)))
     else if
       not (type_1 |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) &&
       type_2 |> EConstr.Vars.noccurn sigma 1
@@ -532,9 +528,7 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
       enumerate_reprs env sigma context_encoders type_1
         |> List.map (fun type_1_repr ->
           enumerate_reprs env sigma context_encoders (type_2 |> econstr_substl_opt sigma [None])
-            |> List.map (fun type_2_repr ->
-              ReprFunctional (type_1_repr, type_2_repr) |> normalize_repr
-            )
+            |> List.map (fun type_2_repr -> ReprFunctional (type_1_repr, type_2_repr))
         )
         |> List.flatten
     else
@@ -569,6 +563,16 @@ let compilation_type_to_context (compilation : compilation) : EConstr.rel_contex
     Context.Rel.Declaration.LocalAssum (EConstr.anonR, compilation.compilation_circuit);
     Context.Rel.Declaration.LocalAssum (EConstr.anonR, compilation.compilation_orig);
   ]
+
+let compilation_to_array (compilation : compilation) : EConstr.t array =
+  [|
+    compilation.compilation_orig;
+    compilation.compilation_circuit;
+    compilation.compilation_wf_circuit;
+    compilation.compilation_eval_circuit;
+    compilation.compilation_circuit_erased;
+    compilation.compilation_eq_circuit_erased;
+  |]
 
 let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (input_len : EConstr.t) (type_ : EConstr.t) (type_repr : repr) : compilation =
   Feedback.msg_info Pp.(str "get_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
@@ -716,7 +720,6 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
         }
       else
         if type_1 |> EConstr.isSort sigma then (
-          assert (type_1_repr = ReprTransformed);
           let type_1_context = [
             Context.Rel.Declaration.LocalAssum (
               EConstr.anonR,
@@ -950,7 +953,7 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
   Typing.type_of env sigma test_type_compilation_type |> ignore;
   type_compilation_type
 
-(* let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (context_reprs : repr list) (context_compilations : compilation option list) (c : EConstr.t) : (repr * compilation) Seq.t =
+let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (context_reprs : repr list) (context_compilations : compilation option list) (input_len : EConstr.t) (c : EConstr.t) : (repr * compilation) Seq.t =
   Feedback.msg_info Pp.(str "create_compilations" ++ spc () ++ Printer.pr_econstr_env env sigma c);
   let c = Tacred.hnf_constr0 env sigma c in
   Seq.append
@@ -963,12 +966,38 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
     | Sort _ -> Seq.empty
     | Prod _ -> Seq.empty
     | Lambda (_, c_1, c_2) ->
-      let c_2_type = Retyping.get_type_of env sigma c_2 in
-      let _ =
-      if c_1 |> EConstr.isSort sigma then
-        Seq.append
-        (
-          let new_context = [
+      let c_2_type =
+        Retyping.get_type_of (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (EConstr.anonR, c_1))) sigma c_2 in
+      Seq.append
+        (create_compilations
+          (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (EConstr.anonR, c_1)))
+          sigma
+          (None :: (context_encoders |> List.map (Option.map (lift_encoder 1))))
+          (ReprRaw :: context_reprs)
+          (None :: (context_compilations |> List.map (Option.map (lift_compilation 1))))
+          (input_len |> EConstr.Vars.lift 1)
+          c_2
+          |> Seq.map (fun (c_2_repr, c_2_compilation) ->
+            (
+              ReprFunctional (ReprRaw, c_2_repr),
+              {
+                compilation_orig =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_orig);
+                compilation_circuit =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_circuit);
+                compilation_wf_circuit =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_wf_circuit);
+                compilation_eval_circuit =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_eval_circuit);
+                compilation_circuit_erased =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_circuit_erased);
+                compilation_eq_circuit_erased =
+                  EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_eq_circuit_erased);
+              }
+            )
+          ))
+        (if c_1 |> EConstr.isSort sigma then
+          let c_1_context = [
             Context.Rel.Declaration.LocalAssum (
               EConstr.anonR,
               EConstr.mkProd (EConstr.anonR, EConstr.mkRel 2, mk_vector_type env (mk_bool_type env) (EConstr.mkRel 2))
@@ -977,7 +1006,7 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
             Context.Rel.Declaration.LocalAssum (EConstr.anonR, c_1);
           ] in
           create_compilations
-            (env |> EConstr.push_rel_context new_context)
+            (env |> EConstr.push_rel_context c_1_context)
             sigma
             (
               None ::
@@ -987,55 +1016,117 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
             )
             (ReprRaw :: ReprRaw :: ReprRaw :: context_reprs)
             (None :: None :: None :: (context_compilations |> List.map (Option.map (lift_compilation 3))))
+            (input_len |> EConstr.Vars.lift 3)
             (c_2 |> EConstr.Vars.liftn 3 2 |> EConstr.Vars.subst1 (EConstr.mkRel 3))
             |> Seq.map (fun (c_2_repr, c_2_compilation) ->
               (
-                ReprFunctional (ReprTransformed, c_2_repr) |> normalize_repr),
+                ReprFunctional (ReprTransformed, c_2_repr),
                 {
-                  compilation_circuit = EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_circuit new_context;
+                  compilation_orig =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_orig c_1_context;
+                  compilation_circuit =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_circuit c_1_context;
+                  compilation_wf_circuit =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_wf_circuit c_1_context;
+                  compilation_eval_circuit =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_eval_circuit c_1_context;
+                  compilation_circuit_erased =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_circuit_erased c_1_context;
+                  compilation_eq_circuit_erased =
+                    EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_eq_circuit_erased c_1_context;
                 }
               )
-        )
-        (
-          create_compilations
-            (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (EConstr.anonR, c_1)))
-            sigma
-            (None :: (context_encoders |> List.map (Option.map (lift_encoder 1))))
-            (ReprRaw :: context_reprs)
-            (None :: (context_compilations |> List.map (Option.map (lift_compilation 1))))
-            c_2
-            |> Seq.map (fun (c_2_repr, c_2_compilation) ->
-              (
-                ReprFunctional (ReprRaw, c_2_repr) |> normalize_repr),
-                {
-                  compilation_circuit = EConstr.mkLambda (EConstr.anonR, c_1, c_2_compilation.compilation_circuit);
-                }
-              )
-        )
-      else if
-        not (c_1 |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) &&
-        c_2_type |> EConstr.Vars.noccurn sigma 1
-      then
-        enumerate_reprs env sigma context_encoders context_reprs c_1
-          |> List.to_seq
-          |> Seq.flat_map (fun c_1_repr ->
-            let new_context = [
-              Context.Rel.Declaration.LocalAssum ()
-            ] in
-            enumerate_compilations
-              (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (EConstr.anonR, c_1)))
-              sigma
-              (None :: (context_encoders |> List.map (Option.map (lift_encoder 1))))
-              (c_1_repr :: context_reprs)
-              type_2
-              |> List.map (fun type_2_repr -> ReprFunctional (c_1_repr, type_2_repr) |> normalize_repr)
-          )
+            )
+        else if
+          not (c_1 |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) &&
+          c_2_type |> EConstr.Vars.noccurn sigma 1
+        then
+          enumerate_reprs env sigma context_encoders c_1
+            |> List.filter (fun c_1_repr -> c_1_repr <> ReprRaw)
+            |> List.to_seq
+            |> Seq.flat_map (fun c_1_repr ->
+              let c_1_compilation_type =
+                get_compilation_type env sigma context_encoders input_len c_1 c_1_repr in
+              let c_1_context = c_1_compilation_type |> compilation_type_to_context in
+              create_compilations
+                (env |> EConstr.push_rel_context c_1_context)
+                sigma
+                (
+                  None ::
+                  None ::
+                  None ::
+                  None ::
+                  None ::
+                  None ::
+                  (context_encoders |> List.map (Option.map (lift_encoder 6)))
+                )
+                (
+                  ReprRaw ::
+                  ReprRaw ::
+                  ReprRaw ::
+                  ReprRaw ::
+                  ReprRaw ::
+                  c_1_repr ::
+                  context_reprs
+                )
+                (
+                  None ::
+                  None ::
+                  None ::
+                  None ::
+                  None ::
+                  Some {
+                    compilation_orig = EConstr.mkRel 6;
+                    compilation_circuit = EConstr.mkRel 5;
+                    compilation_wf_circuit = EConstr.mkRel 4;
+                    compilation_eval_circuit = EConstr.mkRel 3;
+                    compilation_circuit_erased = EConstr.mkRel 2;
+                    compilation_eq_circuit_erased = EConstr.mkRel 1;
+                  } ::
+                  (context_compilations |> List.map (Option.map (lift_compilation 6)))
+                )
+                (input_len |> EConstr.Vars.lift 6)
+                (c_2 |> EConstr.Vars.liftn 6 2 |> EConstr.Vars.subst1 (EConstr.mkRel 6))
+                |> Seq.map (fun (c_2_repr, c_2_compilation) ->
+                  (
+                    ReprFunctional (c_1_repr, c_2_repr),
+                    {
+                      compilation_orig =
+                        EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_orig c_1_context;
+                      compilation_circuit =
+                        EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_circuit c_1_context;
+                      compilation_wf_circuit =
+                        EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_wf_circuit c_1_context;
+                      compilation_eval_circuit =
+                        EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_eval_circuit c_1_context;
+                      compilation_circuit_erased =
+                        EConstr.mkLambda (EConstr.anonR,
+                          c_1_compilation_type.compilation_circuit_erased
+                            |> econstr_substl_opt sigma [
+                              None;
+                              None;
+                              None;
+                              None;
+                            ],
+                          c_2_compilation.compilation_circuit_erased
+                            |> EConstr.Vars.liftn 1 7
+                            |> econstr_substl_opt sigma [
+                              None;
+                              Some (EConstr.mkRel 1);
+                              None;
+                              None;
+                              None;
+                              None;
+                            ]
+                        );
+                      compilation_eq_circuit_erased =
+                        EConstr.it_mkLambda_or_LetIn c_2_compilation.compilation_eq_circuit_erased c_1_context;
+                    }
+                  )
+                )
+            )
         else
-          Seq.empty in
-      _
-      (* enumerate_reprs env sigma context_encoders context_reprs c_1_type |> List.to_seq |> Seq.map (fun c_1_repr ->
-        _
-      ) *)
+          Seq.empty)
     | _ ->
       Feedback.msg_warning Pp.(str "Unexpected term:" ++ spc () ++ Printer.pr_econstr_env env sigma c);
       Seq.empty)
@@ -1044,26 +1135,41 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
         c |> EConstr.Vars.noccurn sigma (1 + context_i) ||
         context_repr = ReprRaw
       ) 0
-    then Seq.return (ReprRaw, {compilation_circuit = c})
-    else Seq.empty) *)
+    then
+      Seq.return (
+        ReprRaw,
+        {
+          compilation_orig = c;
+          compilation_circuit = mk_unit_tt env;
+          compilation_wf_circuit = mk_True_I env;
+          compilation_eval_circuit = mk_True_I env;
+          compilation_circuit_erased = mk_unit_tt env;
+          compilation_eq_circuit_erased = mk_True_I env;
+        }
+      )
+    else Seq.empty)
 
 let entry_derive_compilation (input_c_constr_expr : Constrexpr.constr_expr) (input_repr_constr_expr : Constrexpr.constr_expr) : unit =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (sigma, input_c) = Constrintern.interp_constr_evars env sigma input_c_constr_expr in
-  let input_repr = repr_of_constr_expr env sigma input_repr_constr_expr |> normalize_repr in
+  let input_repr = repr_of_constr_expr env sigma input_repr_constr_expr in
   (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
     Feedback.msg_info Pp.(str "repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr r))
   ); *)
   (* CErrors.user_err Pp.(str "Representation:" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_repr)); *)
-  (* create_compilations env sigma [] [] [] input_c |> Seq.iter (fun (input_c_repr, input_c_compilaiton) ->
+  create_compilations env sigma [] [] [] (to_nat_constr env 42) input_c |> Seq.iter (fun (input_c_repr, input_c_compilaiton) ->
     Feedback.msg_info Pp.(str "input_c_repr" ++ (if input_c_repr = input_repr then str "!" else str "?") ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_c_repr));
-    Feedback.msg_info Pp.(str "input_compilation_c" ++ spc () ++ Printer.pr_econstr_env env sigma input_c_compilaiton.compilation_circuit);
-  ); *)
-  let input_compilation_type = get_compilation_type env sigma [] (to_nat_constr env 123) (Retyping.get_type_of env sigma input_c) input_repr in
+    let input_c_compilation_type = get_compilation_type env sigma [] (to_nat_constr env 42) (Retyping.get_type_of env sigma input_c) input_c_repr in
+    let test_term = EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_c_compilation_type |> compilation_type_to_context), input_c_compilaiton |> compilation_to_array) in
+    Feedback.msg_info Pp.(str "input_compilation_c" ++ spc () ++ Printer.pr_econstr_env env sigma test_term);
+    Typing.type_of env sigma test_term |> ignore;
+    ()
+  );
+  (* let input_compilation_type = get_compilation_type env sigma [] (to_nat_constr env 123) (Retyping.get_type_of env sigma input_c) input_repr in
   let aaa = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type |> compilation_type_to_context) in
   Feedback.msg_info Pp.(str "aaa" ++ spc () ++ Printer.pr_econstr_env env sigma aaa);
-  Typing.type_of env sigma aaa |> ignore;
+  Typing.type_of env sigma aaa |> ignore; *)
   (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
     let input_compilation_type_r = get_compilation_type env sigma [] (to_nat_constr env 456) (Retyping.get_type_of env sigma input_c) r in
     let bbb = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type_r |> compilation_type_to_context) in
