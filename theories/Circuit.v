@@ -61,6 +61,8 @@ Definition circuit_wf {n m} (c : circuit n m) :=
   let '(k, H) := circuit_wf_wires n (circuit_wires c) in
   k ≥ m ∧ H.
 
+Register circuit_wf as vcpu.circuit.wf.
+
 Definition wire_eval (w : wire) (intermediates : list bool) : bool :=
   match w with
   | wire_True => true
@@ -80,6 +82,8 @@ Definition circuit_eval {n m} (c : circuit n m) (inputs : vector bool n) : vecto
   vector_l := list_prefix m (circuit_eval_wires (circuit_wires c) (vector_l inputs)) false;
   vector_wf_l := list_length_list_prefix _ _ _;
 |}.
+
+Register circuit_eval as vcpu.circuit.eval.
 
 Definition circuit_const {n} m (u : vector bool n) : circuit m n := {|
   circuit_wires :=
@@ -114,7 +118,7 @@ Definition circuit_sub n m k : circuit n k := {|
 
 Lemma circuit_wf_circuit_sub :
   ∀ n m k,
-  m + k < n →
+  m + k ≤ n →
   circuit_wf (circuit_sub n m k).
 Proof.
   intros n m k H_m_k. unfold circuit_wf, circuit_sub. simpl. revert m H_m_k; induction k as [| k' IH]; intros m H_m_k; simpl.
@@ -144,6 +148,66 @@ Proof.
   }
   rewrite list_prefix_list_app. reflexivity.
 Qed.
+
+Definition circuit_prefix n m : circuit (n + m) n :=
+  circuit_sub (n + m) 0 n.
+
+Lemma circuit_wf_circuit_prefix :
+  ∀ n m,
+  circuit_wf (circuit_prefix n m).
+Proof.
+  intros n m. unfold circuit_prefix. apply circuit_wf_circuit_sub; lia.
+Qed.
+
+Lemma circuit_eval_circuit_prefix :
+  ∀ n m inputs,
+  circuit_eval (circuit_prefix n m) inputs = vector_prefix n inputs false.
+Proof.
+  intros n m inputs. unfold circuit_prefix. rewrite circuit_eval_circuit_sub.
+  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
+  rewrite list_prefix_eq_list_sub by lia. reflexivity.
+Qed.
+
+Definition circuit_suffix n m : circuit (n + m) m :=
+  circuit_sub (n + m) n m.
+
+Lemma circuit_wf_circuit_suffix :
+  ∀ n m,
+  circuit_wf (circuit_suffix n m).
+Proof.
+  intros n m. unfold circuit_suffix. apply circuit_wf_circuit_sub; lia.
+Qed.
+
+Lemma circuit_eval_circuit_suffix :
+  ∀ n m inputs,
+  circuit_eval (circuit_suffix n m) inputs = vector_suffix m inputs false.
+Proof.
+  intros n m inputs. unfold circuit_suffix. rewrite circuit_eval_circuit_sub.
+  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
+  rewrite list_suffix_eq_list_sub by lia. ltac1:(replace (List.length inputs_l - m) with n by lia). reflexivity.
+Qed.
+
+Definition circuit_select n : circuit (1 + (n + n)) n := {|
+  circuit_wires :=
+    List.map
+      (λ i, wire_If i (Nat.pred (n + 1)) (Nat.pred (n + (1 + n))))
+      (List.seq 0 n);
+|}.
+
+Lemma circuit_wf_circuit_select :
+  ∀ n,
+  circuit_wf (circuit_select n).
+Proof.
+  intros n.
+  specialize (circuit_wf_circuit_sub (1 + (n + n)) 1 n ltac:(lia)) as H_1.
+  specialize (circuit_wf_circuit_sub (1 + (n + n)) (1 + n) n ltac:(lia)) as H_2.
+  unfold circuit_wf, circuit_sub, circuit_select in H_1, H_2 |- *. simpl in H_1, H_2 |- *.
+  unfold circuit_wf_wires.
+Admitted.
+
+(* Lemma circuit_eval_circuit_select :
+  ∀ n inputs,
+  circuit_eval (circuit_select n) inputs =  *)
 
 Definition circuit_comp {n m k} (c_2 : circuit m k) (c_1 : circuit n m) : circuit n k := {|
   circuit_wires := circuit_wires c_2 ++ circuit_wires c_1;

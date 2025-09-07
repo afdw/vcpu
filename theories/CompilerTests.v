@@ -24,3 +24,13 @@ Check sum_len.
 Check sum_encode.
 
 Vcpu Derive Encoder for (sum bool bool).
+
+Vcpu Derive Encoder for option as option.
+
+Check @option_map.
+Check @id.
+
+Definition I A (x : A) := x.
+
+(* Vcpu Derive Compilation for (I) with (F T (F T T)). *)
+Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))).

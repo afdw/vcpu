@@ -5,20 +5,20 @@ DECLARE PLUGIN "vcpu.plugin"
 }
 
 VERNAC COMMAND EXTEND VcpuDefine CLASSIFIED AS SIDEFF
-| [ "Vcpu" "Derive" "Encoder" "for" constr(input_typ)] ->
+| [ "Vcpu" "Derive" "Encoder" "for" constr(input_typ_constr_expr)] ->
   {
-    Compiler.entry_derive_encoder input_typ None
+    Compiler.entry_derive_encoder input_typ_constr_expr None
   }
-| [ "Vcpu" "Derive" "Encoder" "for" constr(input_typ) "as" ident(output_id) ] ->
+| [ "Vcpu" "Derive" "Encoder" "for" constr(input_typ_constr_expr) "as" ident(output_id) ] ->
   {
-    Compiler.entry_derive_encoder input_typ (Some output_id)
+    Compiler.entry_derive_encoder input_typ_constr_expr (Some output_id)
+  }
+| [ "Vcpu" "Derive" "Compilation" "for" constr(input_c_constr_expr) "with" constr(input_repr_constr_expr)] ->
+  {
+    Compiler.entry_derive_compilation input_c_constr_expr input_repr_constr_expr
   }
 | [ "Test" ] ->
   {
     Compiler.entry_test ()
-  }
-| [ "Compile" ident(input_id) ] ->
-  {
-    Compiler.entry_compile input_id
   }
 END

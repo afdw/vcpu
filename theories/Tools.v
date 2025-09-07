@@ -78,20 +78,30 @@ Defined.
 
 Lemma list_prefix_list_app {A} :
   ∀ (l_1 l_2 : list A) default,
-  list_prefix (length l_1) (l_1 ++ l_2) default = l_1.
+  list_prefix (List.length l_1) (l_1 ++ l_2) default = l_1.
 Proof.
   intros l_1 l_2 default. induction l_1 as [| x l_1' IH]; simpl.
   - reflexivity.
   - rewrite IH. reflexivity.
 Qed.
 
-Lemma list_nth_list_prefix {A} :
-  ∀ i n (l : list A) default,
-  i < n →
-  List.nth i (list_prefix n l default) default = List.nth i l default.
+Definition list_suffix {A} n (l : list A) default : list A :=
+  List.rev (list_prefix n (List.rev l) default).
+
+Lemma list_length_list_suffix {A} :
+  ∀ n (l : list A) default,
+  List.length (list_suffix n l default) = n.
 Proof.
-  intros i n l default H_i.
-Admitted.
+  intros n l default. unfold list_suffix. rewrite List.length_rev, list_length_list_prefix. reflexivity.
+Defined.
+
+Lemma list_suffix_list_app {A} :
+  ∀ (l_1 l_2 : list A) default,
+  list_suffix (List.length l_2) (l_1 ++ l_2) default = l_2.
+Proof.
+  intros l_1 l_2 default. unfold list_suffix. ltac1:(replace (List.length l_2) with (List.length (List.rev l_2)) by (rewrite List.length_rev; reflexivity)).
+  rewrite List.rev_app_distr, list_prefix_list_app, List.rev_involutive. reflexivity.
+Qed.
 
 Definition list_sub {A} n m (l : list A) default : list A :=
   List.map (λ i, List.nth i l default) (List.seq n m).
@@ -101,6 +111,44 @@ Lemma list_length_list_sub {A} :
   List.length (list_sub n m l default) = m.
 Proof.
   intros n m l default. unfold list_sub. rewrite List.length_map, List.length_seq. reflexivity.
+Defined.
+
+Lemma list_rev_list_sub {A} :
+  ∀ n m (l : list A) default,
+  n + m ≤ List.length l →
+  List.rev (list_sub n m l default) = list_sub (List.length l - n - m) m (List.rev l) default.
+Proof.
+  intros n m l default H_n_m. unfold list_sub. rewrite <- List.map_rev.
+  apply eq_trans with (List.map (λ i, List.nth (List.length l - S i) l default) (List.seq (List.length l - n - m) m)).
+  - change (λ i, List.nth (List.length l - S i) l default) with (λ i, (λ i, List.nth i l default) ((λ i, List.length l - S i) i)). rewrite <- List.map_map.
+    f_equal. revert n H_n_m; induction m as [| m' IH]; intros n H_n_m; simpl.
+    + reflexivity.
+    + specialize (IH n ltac2:(lia)). ltac1:(replace (S (List.length l - n - S m')) with (List.length l - n - m') by lia). rewrite <- IH.
+      ltac1:(replace (List.length l - (List.length l - n - m')) with (n + m') by lia).
+      change (List.rev (List.seq (S n) m') ++ List.rev [n] = List.rev [n + m'] ++ List.rev (List.seq n m')). rewrite <- ? List.rev_app_distr. f_equal. simpl. rewrite List.cons_seq, List.seq_S. reflexivity.
+  - apply List.map_ext_in. intros i H_i. rewrite List.in_seq in H_i. rewrite List.rev_nth by lia. reflexivity.
+Qed.
+
+Lemma list_prefix_eq_list_sub {A} :
+  ∀ n (l : list A) default,
+  n ≤ List.length l →
+  list_prefix n l default = list_sub 0 n l default.
+Proof.
+  intros n l default H_n. unfold list_sub. revert l H_n; induction n as [| n' IH]; intros l H_n; simpl.
+  - reflexivity.
+  - destruct l as [| x l']; simpl in H_n |- *.
+    + lia.
+    + rewrite IH by lia. rewrite <- List.seq_shift. rewrite List.map_map. reflexivity.
+Qed.
+
+Lemma list_suffix_eq_list_sub {A} :
+  ∀ n (l : list A) default,
+  n ≤ List.length l →
+  list_suffix n l default = list_sub (List.length l - n) n l default.
+Proof.
+  intros n l default H_n. unfold list_suffix. apply List.rev_inj. rewrite List.rev_involutive.
+  rewrite list_rev_list_sub by lia. ltac1:(replace (List.length l - (List.length l - n) - n) with 0 by lia).
+  rewrite list_prefix_eq_list_sub by (rewrite List.length_rev; auto). reflexivity.
 Qed.
 
 Record vector A n := {
@@ -153,6 +201,16 @@ Defined.
 Notation "u  +||+  v" := (vector_app u v) (at level 60, right associativity) : vector_scope.
 
 Register vector_app as vcpu.vector.app.
+
+Definition vector_prefix {A n} m (u : vector A n) default : vector A m := {|
+  vector_l := list_prefix m (vector_l u) default;
+  vector_wf_l := list_length_list_prefix _ _ _;
+|}.
+
+Definition vector_suffix {A n} m (u : vector A n) default : vector A m := {|
+  vector_l := list_suffix m (vector_l u) default;
+  vector_wf_l := list_length_list_suffix _ _ _;
+|}.
 
 Definition vector_sub {A n} m k (u : vector A n) default : vector A k := {|
   vector_l := list_sub m k (vector_l u) default;
