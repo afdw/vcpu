@@ -112,6 +112,10 @@ Proof.
     + rewrite IH. reflexivity.
 Qed.
 
+Register circuit_const as vcpu.circuit.const.
+Register circuit_wf_circuit_const as vcpu.circuit.wf_const.
+Register circuit_eval_circuit_const as vcpu.circuit.eval_const.
+
 Definition circuit_sub n m k : circuit n k := {|
   circuit_wires := List.repeat (wire_Id (Nat.pred (k + m))) k;
 |}.
