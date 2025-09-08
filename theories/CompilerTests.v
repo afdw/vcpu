@@ -33,11 +33,24 @@ Check @inl.
 
 Definition identity A (x : A) := x.
 
+Check Nat.add_comm 2 3.
+
+Definition swap A n m (v : vector A (n + m)) : vector A (m + n) :=
+  rew [λ k, vector A k] (Nat.add_comm n m) in v.
+
+Inductive vec' A (n : nat) := vec'_b (a : A).
+
+Definition swap' A n m (v : vec' A (n + m)) : vec' A (m + n) :=
+  rew [λ k, vec' A k] (Nat.add_comm n m) in v.
+
 (* Set Printing All. *)
+
+Compute swap'.
 
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
 (* Vcpu Derive Compilation for (@option_map) with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
 (* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
 (* Vcpu Derive Compilation for (@inl bool) with (F T (F T T)). *)
-Vcpu Derive Compilation for (@pair bool bool true) with (F T T).
+(* Vcpu Derive Compilation for (@pair bool bool true) with (F T T). *)
+Vcpu Derive Compilation for swap' with (F T (F R (F R (F T T)))).
