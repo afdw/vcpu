@@ -1398,6 +1398,175 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
           )
           (ctx |> EConstr.of_rel_context) in
       create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_expanded
+    | App (c_head, c_args) ->
+      let (c_args_init, c_args_last) = CArray.chop (Array.length c_args - 1) c_args in
+      let c_1 = EConstr.mkApp (c_head, c_args_init) in
+      let c_2 = c_args_last.(0) in
+      (* Feedback.msg_warning Pp.(str "APP" ++ spc () ++ Printer.pr_econstr_env env sigma c_1 ++ spc () ++ Printer.pr_econstr_env env sigma c_2); *)
+      let c_2_type = Retyping.get_type_of env sigma c_2 in
+      create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_1 |> Seq.flat_map (fun (c_1_repr, c_1_compilation) ->
+        match c_1_repr with
+        | ReprFunctional (c_1_repr_1, c_1_repr_2) ->
+          Seq.append
+            (create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_2 |> Seq.flat_map (fun (c_2_repr, c_2_compilation) ->
+              (* Feedback.msg_warning Pp.(str "GOT APP" ++ spc () ++ Printer.pr_econstr_env env sigma c_1 ++ spc () ++ str ":" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_1_repr) ++ spc () ++ Printer.pr_econstr_env env sigma c_2 ++ spc () ++ str ":" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_2_repr)); *)
+              if c_2_repr = c_1_repr_1 then
+                if c_2_repr = ReprRaw then
+                  Seq.return (
+                    c_1_repr_2,
+                    {
+                      compilation_orig =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_orig,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                      compilation_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_circuit,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                      compilation_wf_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_wf_circuit,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                      compilation_eval_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_eval_circuit,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                      compilation_circuit_erased =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_circuit_erased,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                      compilation_eq_circuit_erased =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_eq_circuit_erased,
+                          [|c_2_compilation.compilation_orig|]
+                        );
+                    }
+                  )
+                else if not (c_2_type |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) then
+                  Seq.return (
+                    c_1_repr_2,
+                    {
+                      compilation_orig =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_orig,
+                          [|
+                            c_2_compilation.compilation_orig;
+                            c_2_compilation.compilation_circuit;
+                            c_2_compilation.compilation_wf_circuit;
+                            c_2_compilation.compilation_eval_circuit;
+                            c_2_compilation.compilation_circuit_erased;
+                            c_2_compilation.compilation_eq_circuit_erased;
+                          |]
+                        );
+                      compilation_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_circuit,
+                          [|
+                            c_2_compilation.compilation_orig;
+                            c_2_compilation.compilation_circuit;
+                            c_2_compilation.compilation_wf_circuit;
+                            c_2_compilation.compilation_eval_circuit;
+                            c_2_compilation.compilation_circuit_erased;
+                            c_2_compilation.compilation_eq_circuit_erased;
+                          |]
+                        );
+                      compilation_wf_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_wf_circuit,
+                          [|
+                            c_2_compilation.compilation_orig;
+                            c_2_compilation.compilation_circuit;
+                            c_2_compilation.compilation_wf_circuit;
+                            c_2_compilation.compilation_eval_circuit;
+                            c_2_compilation.compilation_circuit_erased;
+                            c_2_compilation.compilation_eq_circuit_erased;
+                          |]
+                        );
+                      compilation_eval_circuit =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_eval_circuit,
+                          [|
+                            c_2_compilation.compilation_orig;
+                            c_2_compilation.compilation_circuit;
+                            c_2_compilation.compilation_wf_circuit;
+                            c_2_compilation.compilation_eval_circuit;
+                            c_2_compilation.compilation_circuit_erased;
+                            c_2_compilation.compilation_eq_circuit_erased;
+                          |]
+                        );
+                      compilation_circuit_erased =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_circuit_erased,
+                          [|c_2_compilation.compilation_circuit_erased|]
+                        );
+                      compilation_eq_circuit_erased =
+                        EConstr.mkApp (
+                          c_1_compilation.compilation_eq_circuit_erased,
+                          [|
+                            c_2_compilation.compilation_orig;
+                            c_2_compilation.compilation_circuit;
+                            c_2_compilation.compilation_wf_circuit;
+                            c_2_compilation.compilation_eval_circuit;
+                            c_2_compilation.compilation_circuit_erased;
+                            c_2_compilation.compilation_eq_circuit_erased;
+                          |]
+                        );
+                    }
+                  )
+                else
+                  Seq.empty
+              else
+                Seq.empty
+            ))
+            (if c_1_repr_1 = ReprTransformed && c_2_type |> EConstr.isSort sigma then
+              let c_2_encoder = create_encoder env sigma context_encoders c_2 in
+              match c_2_encoder with
+              | Some c_2_encoder ->
+                Seq.return (
+                  c_1_repr_2,
+                  {
+                    compilation_orig =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_orig,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                    compilation_circuit =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_circuit,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                    compilation_wf_circuit =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_wf_circuit,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                    compilation_eval_circuit =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_eval_circuit,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                    compilation_circuit_erased =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_circuit_erased,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                    compilation_eq_circuit_erased =
+                      EConstr.mkApp (
+                        c_1_compilation.compilation_eq_circuit_erased,
+                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
+                      );
+                  }
+                )
+              | None -> Seq.empty
+            else
+              Seq.empty)
+        | _ -> Seq.empty
+      )
     | _ ->
       Feedback.msg_warning Pp.(str "Unexpected term:" ++ spc () ++ Printer.pr_econstr_env env sigma c);
       Seq.empty)

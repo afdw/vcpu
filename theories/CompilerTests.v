@@ -39,4 +39,5 @@ Definition identity A (x : A) := x.
 (* Vcpu Derive Compilation for (@option_map) with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
 (* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
-Vcpu Derive Compilation for @inl with (F T (F T (F T T))).
+(* Vcpu Derive Compilation for (@inl bool) with (F T (F T T)). *)
+Vcpu Derive Compilation for (@pair bool bool true) with (F T T).
