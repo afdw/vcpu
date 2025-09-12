@@ -69,6 +69,27 @@ Print bool_encode.
 Compute bool_encode true.
 Compute [|true|] +||+ [||] +||+ [||].
 
+Print xorb.
+
+Definition exchange A B (p : A * B) : B * A :=
+  match p with
+  | (a, b) => (b, a)
+  end.
+
+Inductive many_things :=
+  | MTA (_ : bool) (_ : bool) (_ : bool)
+  | MTB (_ : bool)
+  | MTC.
+
+Definition many_things_transform (mt : many_things) : many_things :=
+  match mt with
+  | MTA b_1 b_2 b_3 => MTB (xorb b_1 (b_2 && b_3))
+  | MTB b => MTC
+  | MTC => MTA true false false
+  end.
+
+Vcpu Derive Encoder for many_things as many_things.
+
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
 (* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
@@ -77,6 +98,11 @@ Compute [|true|] +||+ [||] +||+ [||].
 (* Vcpu Derive Compilation for (@pair bool bool true) with (F T T). *)
 (* Vcpu Derive Compilation for swap' with (F T (F R (F R (F T T)))). *)
 (* Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F R T). *)
-Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F T T).
+(* Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F T T). *)
 (* Vcpu Derive Compilation for @fst with (F T (F T (F T T))). *)
 (* Vcpu Derive Compilation for @snd with (F T (F T (F T T))). *)
+(* Vcpu Derive Compilation for xorb with (F T (F T T)). *)
+(* Vcpu Derive Compilation for andb with (F T (F T T)). *)
+(* Vcpu Derive Compilation for exchange with (F T (F T (F T T))). *)
+(* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
+Vcpu Derive Compilation for many_things_transform with (F T T).
