@@ -18,6 +18,7 @@ About list.
 (* Test. *)
 
 (* Set Printing All. *)
+Set Printing Implicit.
 
 Print prod.
 
@@ -91,7 +92,7 @@ Definition many_things_transform (mt : many_things) : many_things :=
 Vcpu Derive Encoder for many_things as many_things.
 
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
-(* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
+Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))).
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
 (* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
 (* Vcpu Derive Compilation for (@inl bool) with (F T (F T T)). *)
@@ -105,4 +106,4 @@ Vcpu Derive Encoder for many_things as many_things.
 (* Vcpu Derive Compilation for andb with (F T (F T T)). *)
 (* Vcpu Derive Compilation for exchange with (F T (F T (F T T))). *)
 (* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
-Vcpu Derive Compilation for many_things_transform with (F T T).
+(* Vcpu Derive Compilation for many_things_transform with (F T T). *)
