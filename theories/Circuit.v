@@ -116,103 +116,6 @@ Register circuit_const as vcpu.circuit.const.
 Register circuit_wf_circuit_const as vcpu.circuit.wf_const.
 Register circuit_eval_circuit_const as vcpu.circuit.eval_const.
 
-Definition circuit_sub n m k : circuit n k := {|
-  circuit_wires := List.repeat (wire_Id (Nat.pred (k + m))) k;
-|}.
-
-Lemma circuit_wf_circuit_sub :
-  ∀ n m k,
-  m + k ≤ n →
-  circuit_wf (circuit_sub n m k).
-Proof.
-  intros n m k H_m_k. unfold circuit_wf, circuit_sub. simpl. revert m H_m_k; induction k as [| k' IH]; intros m H_m_k; simpl.
-  - auto.
-  - specialize (IH (S m)). rewrite Nat.add_succ_r in IH. simpl in IH.
-    destruct (circuit_wf_wires n (ListDef.repeat (wire_Id (k' + m)) k')) as (l & H).
-    specialize (IH ltac2:(lia)). ltac1:(intuition lia).
-Qed.
-
-Lemma circuit_eval_circuit_sub :
-  ∀ n m k inputs,
-  circuit_eval (circuit_sub n m k) inputs = vector_sub m k inputs false.
-Proof.
-  intros n m k inputs. unfold circuit_eval, circuit_sub, vector_sub, list_sub. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
-  clear inputs_wf_l.
-  ltac1:(replace (circuit_eval_wires (List.repeat (wire_Id (Nat.pred (k + m))) k) inputs_l) with (List.map (λ i, List.nth i inputs_l false) (List.seq m k) ++ inputs_l); revgoals). {
-    symmetry. revert m; induction k as [| k' IH]; intros m; simpl.
-    - reflexivity.
-    - specialize (IH (S m)). rewrite Nat.add_succ_r in IH. simpl in IH. rewrite IH.
-      ltac1:(replace k' with (List.length (List.map (λ i, List.nth i inputs_l false) (List.seq (S m) k'))) at 1; revgoals). {
-        rewrite List.length_map, List.length_seq. reflexivity.
-      }
-      rewrite List.app_nth2_plus. reflexivity.
-  }
-  ltac1:(replace k with (List.length (List.map (λ i, ListDef.nth i inputs_l false) (List.seq m k))) at 1; revgoals). {
-    rewrite List.length_map, List.length_seq. reflexivity.
-  }
-  rewrite list_prefix_list_app. reflexivity.
-Qed.
-
-Definition circuit_prefix n m : circuit (n + m) n :=
-  circuit_sub (n + m) 0 n.
-
-Lemma circuit_wf_circuit_prefix :
-  ∀ n m,
-  circuit_wf (circuit_prefix n m).
-Proof.
-  intros n m. unfold circuit_prefix. apply circuit_wf_circuit_sub; lia.
-Qed.
-
-Lemma circuit_eval_circuit_prefix :
-  ∀ n m inputs,
-  circuit_eval (circuit_prefix n m) inputs = vector_prefix n inputs false.
-Proof.
-  intros n m inputs. unfold circuit_prefix. rewrite circuit_eval_circuit_sub.
-  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
-  rewrite list_prefix_eq_list_sub by lia. reflexivity.
-Qed.
-
-Definition circuit_suffix n m : circuit (n + m) m :=
-  circuit_sub (n + m) n m.
-
-Lemma circuit_wf_circuit_suffix :
-  ∀ n m,
-  circuit_wf (circuit_suffix n m).
-Proof.
-  intros n m. unfold circuit_suffix. apply circuit_wf_circuit_sub; lia.
-Qed.
-
-Lemma circuit_eval_circuit_suffix :
-  ∀ n m inputs,
-  circuit_eval (circuit_suffix n m) inputs = vector_suffix m inputs false.
-Proof.
-  intros n m inputs. unfold circuit_suffix. rewrite circuit_eval_circuit_sub.
-  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
-  rewrite list_suffix_eq_list_sub by lia. ltac1:(replace (List.length inputs_l - m) with n by lia). reflexivity.
-Qed.
-
-Definition circuit_select n : circuit (1 + (n + n)) n := {|
-  circuit_wires :=
-    List.map
-      (λ i, wire_If i (Nat.pred (n + 1)) (Nat.pred (n + (1 + n))))
-      (List.seq 0 n);
-|}.
-
-Lemma circuit_wf_circuit_select :
-  ∀ n,
-  circuit_wf (circuit_select n).
-Proof.
-  intros n.
-  specialize (circuit_wf_circuit_sub (1 + (n + n)) 1 n ltac:(lia)) as H_1.
-  specialize (circuit_wf_circuit_sub (1 + (n + n)) (1 + n) n ltac:(lia)) as H_2.
-  unfold circuit_wf, circuit_sub, circuit_select in H_1, H_2 |- *. simpl in H_1, H_2 |- *.
-  unfold circuit_wf_wires.
-Admitted.
-
-(* Lemma circuit_eval_circuit_select :
-  ∀ n inputs,
-  circuit_eval (circuit_select n) inputs =  *)
-
 Definition circuit_comp {n m k} (c_2 : circuit m k) (c_1 : circuit n m) : circuit n k := {|
   circuit_wires := circuit_wires c_2 ++ circuit_wires c_1;
 |}.
@@ -233,7 +136,10 @@ Proof.
 Admitted.
 
 Lemma circuit_eval_circuit_comp {n m k} :
-  ∀ (c_2 : circuit m k) (c_1 : circuit n m) inputs,
+  ∀ (c_2 : circuit m k) (c_1 : circuit n m),
+  circuit_wf c_2 →
+  circuit_wf c_1 →
+  ∀ inputs,
   circuit_eval (circuit_comp c_2 c_1) inputs = circuit_eval c_2 (circuit_eval c_1 inputs).
 Proof.
 Admitted.
@@ -298,3 +204,493 @@ Register circuit_combine_cong as vcpu.circuit.combine_cong.
 (* Compute circuit_combine (@Build_circuit 5 2 [wire_Id 0; wire_Id 1]) (@Build_circuit 5 2 [wire_Id 3; wire_Id 4]). *)
 (* Compute circuit_eval (circuit_sub 10 3 5) [|?[a]; ?[b]; ?[c]; ?[d]; ?[e]; ?[f]; ?[g]; ?[h]; ?[i]; ?[j]|].
 Compute circuit_eval_wires (circuit_wires (circuit_sub 10 3 5)) [?[a]; ?[b]; ?[c]; ?[d]; ?[e]; ?[f]; ?[g]; ?[h]; ?[i]; ?[j]]. *)
+
+Definition circuit_sub n m k : circuit n k := {|
+  circuit_wires := List.repeat (wire_Id (Nat.pred (k + m))) k;
+|}.
+
+Lemma circuit_wf_circuit_sub :
+  ∀ n m k,
+  m + k ≤ n →
+  circuit_wf (circuit_sub n m k).
+Proof.
+  intros n m k H_m_k. unfold circuit_wf, circuit_sub. simpl. revert m H_m_k; induction k as [| k' IH]; intros m H_m_k; simpl.
+  - auto.
+  - specialize (IH (S m)). rewrite Nat.add_succ_r in IH. simpl in IH.
+    destruct (circuit_wf_wires n (ListDef.repeat (wire_Id (k' + m)) k')) as (l & H).
+    specialize (IH ltac2:(lia)). ltac1:(intuition lia).
+Qed.
+
+Lemma circuit_eval_circuit_sub :
+  ∀ n m k inputs,
+  circuit_eval (circuit_sub n m k) inputs = vector_sub m k inputs false.
+Proof.
+  intros n m k inputs. unfold circuit_eval, circuit_sub, vector_sub, list_sub. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
+  clear inputs_wf_l.
+  ltac1:(replace (circuit_eval_wires (List.repeat (wire_Id (Nat.pred (k + m))) k) inputs_l) with (List.map (λ i, List.nth i inputs_l false) (List.seq m k) ++ inputs_l); revgoals). {
+    symmetry. revert m; induction k as [| k' IH]; intros m; simpl.
+    - reflexivity.
+    - specialize (IH (S m)). rewrite Nat.add_succ_r in IH. simpl in IH. rewrite IH.
+      ltac1:(replace k' with (List.length (List.map (λ i, List.nth i inputs_l false) (List.seq (S m) k'))) at 1; revgoals). {
+        rewrite List.length_map, List.length_seq. reflexivity.
+      }
+      rewrite List.app_nth2_plus. reflexivity.
+  }
+  ltac1:(replace k with (List.length (List.map (λ i, ListDef.nth i inputs_l false) (List.seq m k))) at 1; revgoals). {
+    rewrite List.length_map, List.length_seq. reflexivity.
+  }
+  rewrite list_prefix_list_app. reflexivity.
+Qed.
+
+Definition circuit_prefix n m : circuit (n + m) n :=
+  circuit_sub (n + m) 0 n.
+
+Lemma circuit_wf_circuit_prefix :
+  ∀ n m,
+  circuit_wf (circuit_prefix n m).
+Proof.
+  intros n m. unfold circuit_prefix. apply circuit_wf_circuit_sub; lia.
+Qed.
+
+Lemma circuit_eval_circuit_prefix :
+  ∀ n m inputs,
+  circuit_eval (circuit_prefix n m) inputs = vector_prefix n inputs false.
+Proof.
+  intros n m inputs. unfold circuit_prefix. rewrite circuit_eval_circuit_sub.
+  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
+  rewrite list_prefix_eq_list_sub by lia. reflexivity.
+Qed.
+
+Lemma circuit_eval_circuit_prefix_relative :
+  ∀ n m inputs_1 inputs_2,
+  circuit_eval (circuit_prefix n m) (inputs_1 +||+ inputs_2) = inputs_1.
+Proof.
+  intros n m inputs_1 inputs_2. rewrite circuit_eval_circuit_prefix, vector_prefix_vector_app. reflexivity.
+Qed.
+
+Definition circuit_comp_prefix {n} m k (c : circuit n (m + k)) : circuit n m :=
+  circuit_comp (circuit_prefix m k) c.
+
+Lemma circuit_wf_circuit_comp_prefix {n} :
+  ∀ m k (c : circuit n (m + k)),
+  circuit_wf c →
+  circuit_wf (circuit_comp_prefix m k c).
+Proof.
+  intros m k c wf_c. apply circuit_wf_circuit_comp.
+  - apply circuit_wf_circuit_prefix.
+  - auto.
+Qed.
+
+Lemma circuit_eval_circuit_comp_prefix {n} :
+  ∀ m k (c : circuit n (m + k)),
+  circuit_wf c →
+  ∀ inputs u v,
+  circuit_eval c inputs = u +||+ v →
+  circuit_eval (circuit_comp_prefix m k c) inputs = u.
+Proof.
+  intros m k c wf_v inputs u v H_c. unfold circuit_comp_prefix. rewrite circuit_eval_circuit_comp by (auto; apply circuit_wf_circuit_prefix).
+  rewrite H_c, circuit_eval_circuit_prefix_relative. reflexivity.
+Qed.
+
+Lemma circuit_comp_prefix_cong {n} :
+  ∀ m k (c c' : circuit n (m + k)),
+  c = c' →
+  circuit_comp_prefix m k c = circuit_comp_prefix m k c'.
+Proof.
+  intros m k c c' H. congruence.
+Qed.
+
+Register circuit_comp_prefix as vcpu.circuit.comp_prefix.
+Register circuit_wf_circuit_comp_prefix as vcpu.circuit.wf_comp_prefix.
+Register circuit_eval_circuit_comp_prefix as vcpu.circuit.eval_comp_prefix.
+Register circuit_comp_prefix_cong as vcpu.circuit.comp_prefix_cong.
+
+Definition circuit_suffix n m : circuit (n + m) m :=
+  circuit_sub (n + m) n m.
+
+Lemma circuit_wf_circuit_suffix :
+  ∀ n m,
+  circuit_wf (circuit_suffix n m).
+Proof.
+  intros n m. unfold circuit_suffix. apply circuit_wf_circuit_sub; lia.
+Qed.
+
+Lemma circuit_eval_circuit_suffix :
+  ∀ n m inputs,
+  circuit_eval (circuit_suffix n m) inputs = vector_suffix m inputs false.
+Proof.
+  intros n m inputs. unfold circuit_suffix. rewrite circuit_eval_circuit_sub.
+  unfold vector_sub, vector_prefix. apply irrelevant_vector. destruct inputs as [inputs_l inputs_wf_l]. simpl.
+  rewrite list_suffix_eq_list_sub by lia. ltac1:(replace (List.length inputs_l - m) with n by lia). reflexivity.
+Qed.
+
+Lemma circuit_eval_circuit_suffix_relative :
+  ∀ n m inputs_1 inputs_2,
+  circuit_eval (circuit_suffix n m) (inputs_1 +||+ inputs_2) = inputs_2.
+Proof.
+  intros n m inputs_1 inputs_2. rewrite circuit_eval_circuit_suffix, vector_suffix_vector_app. reflexivity.
+Qed.
+
+Definition circuit_comp_suffix {n} m k (c : circuit n (m + k)) : circuit n k :=
+  circuit_comp (circuit_suffix m k) c.
+
+Lemma circuit_wf_circuit_comp_suffix {n} :
+  ∀ m k (c : circuit n (m + k)),
+  circuit_wf c →
+  circuit_wf (circuit_comp_suffix m k c).
+Proof.
+  intros m k c wf_c. apply circuit_wf_circuit_comp.
+  - apply circuit_wf_circuit_suffix.
+  - auto.
+Qed.
+
+Lemma circuit_eval_circuit_comp_suffix {n} :
+  ∀ m k (c : circuit n (m + k)),
+  circuit_wf c →
+  ∀ inputs u v,
+  circuit_eval c inputs = u +||+ v →
+  circuit_eval (circuit_comp_suffix m k c) inputs = v.
+Proof.
+  intros m k c wf_v inputs u v H_c. unfold circuit_comp_suffix. rewrite circuit_eval_circuit_comp by (auto; apply circuit_wf_circuit_suffix).
+  rewrite H_c, circuit_eval_circuit_suffix_relative. reflexivity.
+Qed.
+
+Lemma circuit_comp_suffix_cong {n} :
+  ∀ m k (c c' : circuit n (m + k)),
+  c = c' →
+  circuit_comp_suffix m k c = circuit_comp_suffix m k c'.
+Proof.
+  intros m k c c' H. congruence.
+Qed.
+
+Register circuit_comp_suffix as vcpu.circuit.comp_suffix.
+Register circuit_wf_circuit_comp_suffix as vcpu.circuit.wf_comp_suffix.
+Register circuit_eval_circuit_comp_suffix as vcpu.circuit.eval_comp_suffix.
+Register circuit_comp_suffix_cong as vcpu.circuit.comp_suffix_cong.
+
+Definition circuit_select n : circuit (1 + (n + n)) n := {|
+  circuit_wires :=
+    List.map
+      (λ i, wire_If i (Nat.pred (n + 1)) (Nat.pred (n + (1 + n))))
+      (List.seq 0 n);
+|}.
+
+Lemma circuit_wf_circuit_select :
+  ∀ n,
+  circuit_wf (circuit_select n).
+Proof.
+  intros n.
+  specialize (circuit_wf_circuit_sub (1 + (n + n)) 1 n ltac:(lia)) as H_1.
+  specialize (circuit_wf_circuit_sub (1 + (n + n)) (1 + n) n ltac:(lia)) as H_2.
+  unfold circuit_wf, circuit_sub, circuit_select in H_1, H_2 |- *. simpl in H_1, H_2 |- *.
+  unfold circuit_wf_wires.
+Admitted.
+
+Lemma circuit_eval_circuit_select :
+  ∀ n b inputs_1 inputs_2,
+  circuit_eval (circuit_select n) ([|b|] +||+ inputs_1 +||+ inputs_2) =
+  if b then inputs_1 else inputs_2.
+Proof.
+Admitted.
+
+Definition circuit_comp_select {n m k l}
+  (c_1 : circuit n (1 + (m + k)))
+  (c_2 : circuit n m → circuit n l)
+  (c_3 : circuit n k → circuit n l)
+  : circuit n l :=
+  circuit_comp
+    (circuit_select l)
+    (circuit_combine
+      (circuit_comp
+        (circuit_prefix 1 (m + k))
+        c_1)
+      (circuit_combine
+        (c_2 (
+          circuit_comp
+            (circuit_comp
+              (circuit_prefix m k)
+              (circuit_suffix 1 (m + k)))
+            c_1
+        ))
+        (c_3 (
+          circuit_comp
+            (circuit_comp
+              (circuit_suffix m k)
+              (circuit_suffix 1 (m + k)))
+            c_1
+        )))).
+
+Definition circuit_wf_circuit_comp_select {n m k l} :
+  ∀
+  (c_1 : circuit n (1 + (m + k)))
+  (c_2 : circuit n m → circuit n l)
+  (c_3 : circuit n k → circuit n l),
+  circuit_wf c_1 →
+  (∀ c, circuit_wf c → circuit_wf (c_2 c)) →
+  (∀ c, circuit_wf c → circuit_wf (c_3 c)) →
+  circuit_wf (circuit_comp_select c_1 c_2 c_3).
+Proof.
+  intros c_1 c_2 c_3 wf_c_1 wf_c_2 wf_c_3. unfold circuit_comp_select.
+  apply circuit_wf_circuit_comp.
+  - apply circuit_wf_circuit_select.
+  - apply circuit_wf_circuit_combine.
+    + apply circuit_wf_circuit_comp.
+      * apply circuit_wf_circuit_prefix.
+      * auto.
+    + apply circuit_wf_circuit_combine.
+      * apply wf_c_2. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+      * apply wf_c_3. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+Qed.
+
+Definition circuit_eval_circuit_comp_select_1 {n m k l} :
+  ∀
+  (c_1 : circuit n (1 + (m + k)))
+  (c_2 : circuit n m → circuit n l)
+  (c_3 : circuit n k → circuit n l),
+  circuit_wf c_1 →
+  (∀ c, circuit_wf c → circuit_wf (c_2 c)) →
+  (∀ c, circuit_wf c → circuit_wf (c_3 c)) →
+  ∀ inputs u v w,
+  circuit_eval c_1 inputs = [|true|] +||+ u +||+ v →
+  (∀ c, circuit_wf c → circuit_eval c inputs = u → circuit_eval (c_2 c) inputs = w) →
+  circuit_eval (circuit_comp_select c_1 c_2 c_3) inputs = w.
+Proof.
+  intros c_1 c_2 c_3 wf_c_1 wf_c_2 wf_c_3 inputs u v w H_c_1 H_c_2. unfold circuit_comp_select.
+  rewrite circuit_eval_circuit_comp.
+  - apply eq_trans with (
+      circuit_eval
+        (circuit_select l)
+        (
+          [|true|] +||+
+          (circuit_eval
+            (c_2 (
+              circuit_comp
+                (circuit_comp
+                  (circuit_prefix m k)
+                  (circuit_suffix 1 (m + k)))
+                c_1
+            ))
+            inputs) +||+
+          (circuit_eval
+            (c_3 (
+              circuit_comp
+                (circuit_comp
+                  (circuit_suffix m k)
+                  (circuit_suffix 1 (m + k)))
+                c_1
+            ))
+            inputs)
+        )
+    ).
+    + f_equal. rewrite circuit_eval_circuit_combine.
+      * f_equal.
+        -- rewrite circuit_eval_circuit_comp.
+           ++ rewrite H_c_1, circuit_eval_circuit_prefix_relative. reflexivity.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ auto.
+        -- rewrite circuit_eval_circuit_combine.
+           ++ reflexivity.
+           ++ apply wf_c_2. apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_comp.
+                 --- apply circuit_wf_circuit_prefix.
+                 --- apply circuit_wf_circuit_suffix.
+              ** auto.
+           ++ apply wf_c_3. apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_comp.
+                 --- apply circuit_wf_circuit_suffix.
+                 --- apply circuit_wf_circuit_suffix.
+              ** auto.
+      * apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_prefix.
+        -- auto.
+      * apply circuit_wf_circuit_combine.
+        -- apply wf_c_2. apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_prefix.
+              ** apply circuit_wf_circuit_suffix.
+           ++ auto.
+        -- apply wf_c_3. apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_suffix.
+              ** apply circuit_wf_circuit_suffix.
+           ++ auto.
+    + rewrite circuit_eval_circuit_select, H_c_2.
+      * reflexivity.
+      * apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+      * rewrite circuit_eval_circuit_comp.
+        -- rewrite circuit_eval_circuit_comp.
+           ++ rewrite H_c_1, circuit_eval_circuit_suffix_relative, circuit_eval_circuit_prefix_relative. reflexivity.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+  - apply circuit_wf_circuit_select.
+  - apply circuit_wf_circuit_combine.
+    + apply circuit_wf_circuit_comp.
+      * apply circuit_wf_circuit_prefix.
+      * auto.
+    + apply circuit_wf_circuit_combine.
+      * apply wf_c_2. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+      * apply wf_c_3. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+Qed.
+
+Definition circuit_eval_circuit_comp_select_2 {n m k l} :
+  ∀
+  (c_1 : circuit n (1 + (m + k)))
+  (c_2 : circuit n m → circuit n l)
+  (c_3 : circuit n k → circuit n l),
+  circuit_wf c_1 →
+  (∀ c, circuit_wf c → circuit_wf (c_2 c)) →
+  (∀ c, circuit_wf c → circuit_wf (c_3 c)) →
+  ∀ inputs u v w,
+  circuit_eval c_1 inputs = [|false|] +||+ u +||+ v →
+  (∀ c, circuit_wf c → circuit_eval c inputs = v → circuit_eval (c_3 c) inputs = w) →
+  circuit_eval (circuit_comp_select c_1 c_2 c_3) inputs = w.
+Proof.
+  intros c_1 c_2 c_3 wf_c_1 wf_c_2 wf_c_3 inputs u v w H_c_1 H_c_3. unfold circuit_comp_select.
+  rewrite circuit_eval_circuit_comp.
+  - apply eq_trans with (
+      circuit_eval
+        (circuit_select l)
+        (
+          [|false|] +||+
+          (circuit_eval
+            (c_2 (
+              circuit_comp
+                (circuit_comp
+                  (circuit_prefix m k)
+                  (circuit_suffix 1 (m + k)))
+                c_1
+            ))
+            inputs) +||+
+          (circuit_eval
+            (c_3 (
+              circuit_comp
+                (circuit_comp
+                  (circuit_suffix m k)
+                  (circuit_suffix 1 (m + k)))
+                c_1
+            ))
+            inputs)
+        )
+    ).
+    + f_equal. rewrite circuit_eval_circuit_combine.
+      * f_equal.
+        -- rewrite circuit_eval_circuit_comp.
+           ++ rewrite H_c_1, circuit_eval_circuit_prefix_relative. reflexivity.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ auto.
+        -- rewrite circuit_eval_circuit_combine.
+           ++ reflexivity.
+           ++ apply wf_c_2. apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_comp.
+                 --- apply circuit_wf_circuit_prefix.
+                 --- apply circuit_wf_circuit_suffix.
+              ** auto.
+           ++ apply wf_c_3. apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_comp.
+                 --- apply circuit_wf_circuit_suffix.
+                 --- apply circuit_wf_circuit_suffix.
+              ** auto.
+      * apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_prefix.
+        -- auto.
+      * apply circuit_wf_circuit_combine.
+        -- apply wf_c_2. apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_prefix.
+              ** apply circuit_wf_circuit_suffix.
+           ++ auto.
+        -- apply wf_c_3. apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_comp.
+              ** apply circuit_wf_circuit_suffix.
+              ** apply circuit_wf_circuit_suffix.
+           ++ auto.
+    + rewrite circuit_eval_circuit_select, H_c_3.
+      * reflexivity.
+      * apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+      * rewrite circuit_eval_circuit_comp.
+        -- rewrite circuit_eval_circuit_comp.
+           ++ rewrite H_c_1, circuit_eval_circuit_suffix_relative, circuit_eval_circuit_suffix_relative. reflexivity.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+  - apply circuit_wf_circuit_select.
+  - apply circuit_wf_circuit_combine.
+    + apply circuit_wf_circuit_comp.
+      * apply circuit_wf_circuit_prefix.
+      * auto.
+    + apply circuit_wf_circuit_combine.
+      * apply wf_c_2. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_prefix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+      * apply wf_c_3. apply circuit_wf_circuit_comp.
+        -- apply circuit_wf_circuit_comp.
+           ++ apply circuit_wf_circuit_suffix.
+           ++ apply circuit_wf_circuit_suffix.
+        -- auto.
+Qed.
+
+Lemma circuit_comp_select_cong {n m k l} :
+  ∀
+  (c_1 c_1' : circuit n (1 + (m + k)))
+  (c_2 c_2' : circuit n m → circuit n l)
+  (c_3 c_3' : circuit n k → circuit n l),
+  circuit_wf c_1' →
+  c_1 = c_1' →
+  (∀ c, circuit_wf c → c_2 c = c_2' c) →
+  (∀ c, circuit_wf c → c_3 c = c_3' c) →
+  circuit_comp_select c_1 c_2 c_3 = circuit_comp_select c_1' c_2' c_3'.
+Proof.
+  intros c_1 c_1' c_2 c_2' c_3 c_3' wc_c_1' H_1 H_2 H_3. unfold circuit_comp_select. repeat f_equal.
+  - apply H_1.
+  - intros <-. apply H_2. apply circuit_wf_circuit_comp.
+    + apply circuit_wf_circuit_comp.
+      * apply circuit_wf_circuit_prefix.
+      * apply circuit_wf_circuit_suffix.
+    + rewrite H_1. auto.
+  - apply H_1.
+  - intros <-. apply H_3. apply circuit_wf_circuit_comp.
+    + apply circuit_wf_circuit_comp.
+      * apply circuit_wf_circuit_suffix.
+      * apply circuit_wf_circuit_suffix.
+    + rewrite H_1. auto.
+  - apply H_1.
+Qed.
+
+Register circuit_comp_select as vcpu.circuit.comp_select.
+Register circuit_wf_circuit_comp_select as vcpu.circuit.wf_comp_select.
+Register circuit_eval_circuit_comp_select_1 as vcpu.circuit.eval_comp_select_1.
+Register circuit_eval_circuit_comp_select_2 as vcpu.circuit.eval_comp_select_2.
+Register circuit_comp_select_cong as vcpu.circuit.comp_select_cong.

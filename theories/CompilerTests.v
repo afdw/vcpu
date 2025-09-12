@@ -3,6 +3,8 @@ From Vcpu Require Import Tools.
 From Vcpu Require Import Circuit.
 From Vcpu Require Import Plugin.
 
+Set Printing Width 120.
+
 (* Eval hnf in (4 : nat). *)
 
 (* Check (∀ x : _, _) _. *)
@@ -17,6 +19,11 @@ About list.
 
 (* Set Printing All. *)
 
+Print prod.
+
+Vcpu Derive Encoder for prod as prod.
+Print prod_encode.
+
 Vcpu Derive Encoder for bool as bool.
 
 Vcpu Derive Encoder for sum as sum.
@@ -26,6 +33,8 @@ Check sum_encode.
 Vcpu Derive Encoder for (sum bool bool).
 
 Vcpu Derive Encoder for option as option.
+
+(* Vcpu Derive Encoder for vector. *)
 
 Check @option_map.
 Check @pair.
@@ -45,12 +54,29 @@ Definition swap' A n m (v : vec' A (n + m)) : vec' A (m + n) :=
 
 (* Set Printing All. *)
 
+(* negb : bool → bool *)
+(* ->   : ∀ in_len, circuit in_len 1 → circuit in_len 1 *)
+(* ->   : ∀ in_len, bool * circuit in_len 1 → bool * circuit in_len 1 *)
+
+(* @option_map A B : (A → B) → (option A → option B) *)
+(* ->              : ∀ in_len, (circuit in_len A_len → circuit in_len B_len) → circuit in_len (1 + A_len) → circuit in_len (1 + B_len) *)
+
 Compute swap'.
 
+About eq_trans.
+
+Print bool_encode.
+Compute bool_encode true.
+Compute [|true|] +||+ [||] +||+ [||].
+
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
-(* Vcpu Derive Compilation for (@option_map) with (F T (F T (F (F T T) (F T T)))). *)
+(* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
 (* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
 (* Vcpu Derive Compilation for (@inl bool) with (F T (F T T)). *)
 (* Vcpu Derive Compilation for (@pair bool bool true) with (F T T). *)
-Vcpu Derive Compilation for swap' with (F T (F R (F R (F T T)))).
+(* Vcpu Derive Compilation for swap' with (F T (F R (F R (F T T)))). *)
+(* Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F R T). *)
+Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F T T).
+(* Vcpu Derive Compilation for @fst with (F T (F T (F T T))). *)
+(* Vcpu Derive Compilation for @snd with (F T (F T (F T T))). *)

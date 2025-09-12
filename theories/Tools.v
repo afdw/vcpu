@@ -207,10 +207,26 @@ Definition vector_prefix {A n} m (u : vector A n) default : vector A m := {|
   vector_wf_l := list_length_list_prefix _ _ _;
 |}.
 
+Lemma vector_prefix_vector_app {A n m} :
+  ∀ (u : vector A n) (v : vector A m) default,
+  vector_prefix n (u +||+ v) default = u.
+Proof.
+  intros u v default. unfold vector_prefix. apply irrelevant_vector. simpl.
+  rewrite <- (vector_wf_l u) at 1. rewrite list_prefix_list_app. reflexivity.
+Qed.
+
 Definition vector_suffix {A n} m (u : vector A n) default : vector A m := {|
   vector_l := list_suffix m (vector_l u) default;
   vector_wf_l := list_length_list_suffix _ _ _;
 |}.
+
+Lemma vector_suffix_vector_app {A n m} :
+  ∀ (u : vector A n) (v : vector A m) default,
+  vector_suffix m (u +||+ v) default = v.
+Proof.
+  intros u v default. unfold vector_suffix. apply irrelevant_vector. simpl.
+  rewrite <- (vector_wf_l v) at 1. rewrite list_suffix_list_app. reflexivity.
+Qed.
 
 Definition vector_sub {A n} m k (u : vector A n) default : vector A k := {|
   vector_l := list_sub m k (vector_l u) default;
