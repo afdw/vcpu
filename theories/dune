@@ -2,5 +2,5 @@
  (name Vcpu)
  (package vcpu)
  (plugins vcpu.plugin)
- (theories Ltac2 Stdlib Equations)
+ (theories Ltac2 Stdlib)
  (flags -bt))

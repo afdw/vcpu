@@ -1,10 +1,5 @@
 From Ltac2 Require Export Ltac2.
-From Equations Require Export Equations.
-From Equations Require Export TransparentEquations.
 From Stdlib Require Export Unicode.Utf8.
-From Stdlib Require Export Logic.Classical.
-From Stdlib Require Export Logic.FunctionalExtensionality.
-From Stdlib Require Export Logic.PropExtensionality.
 From Stdlib Require Export Logic.Eqdep_dec.
 From Stdlib Require Arith.Arith.
 From Stdlib Require Export ZArith.ZArith.
@@ -16,16 +11,13 @@ From Corelib Require Export Program.Basics.
 (* From Corelib Require Export Program.Utils. *)
 From Stdlib Require Export Classes.EquivDec.
 
-#[global] Obligation Tactic := try (solve [ltac1:(Equations.CoreTactics.equations_simpl)]).
+#[global] Obligation Tactic := ().
 #[global] Unset Program Cases.
 #[global] Unset Program Generalized Coercion.
 #[global] Unset Implicit Arguments.
 
 (* #[global] Set Typeclasses Iterative Deepening. *)
 #[global] Set Typeclasses Depth 20.
-
-#[global] Set Equations With UIP.
-#[global] Set Equations Transparent.
 
 Ltac2 Notation "lia" := ltac1:(lia).
 

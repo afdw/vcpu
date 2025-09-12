@@ -1,4 +1,4 @@
 {
     // "vsrocq.path": "dune coq top --toplevel vsrocqtop theories/CompilerTests.v --"
-    "vsrocq.args": ["-I", "_build/install/default/lib", "-R", "_build/default/theories Vcpu"]
+    "vsrocq.args": ["-I", "_build/install/default/lib", "-R", "_build/default/theories", "Vcpu"]
 }

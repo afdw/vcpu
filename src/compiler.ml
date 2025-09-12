@@ -1,3 +1,7 @@
+let debug_vcpu_flag, debug_vcpu = CDebug.create_full ~name:"vcpu" ()
+
+let () = CDebug.set_flag debug_vcpu_flag true
+
 let rec fold_right_trace : 'a 'acc. ('a -> 'acc -> 'acc) -> 'a list -> 'acc -> 'acc list = fun f l acc ->
   match l with
   | [] -> [acc]
@@ -271,7 +275,7 @@ let add_saved_encoder ((ind, ind_encoder) : (Names.Ind.t * encoder)) : unit =
 
 let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (type_ : EConstr.t) : encoder option =
   let exception Static in
-  Feedback.msg_info Pp.(str "create_encoder" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
+  debug_vcpu Pp.(fun () -> str "create_encoder" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_head, type_args = EConstr.decompose_app sigma type_ in
   match EConstr.kind sigma type_head, type_args with
@@ -370,7 +374,7 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
                 |> reduce_right (fun len_1 len_2 ->
                   mk_nat_add env (to_nat_constr env 1) (mk_nat_add env len_1 len_2)
                 ) in
-            Feedback.msg_info Pp.(str "type_len" ++ spc () ++ Printer.pr_econstr_env env sigma type_len);
+            debug_vcpu Pp.(fun () -> str "type_len" ++ spc () ++ Printer.pr_econstr_env env sigma type_len);
             let type_encode =
               EConstr.mkLambda (
                 EConstr.anonR,
@@ -456,8 +460,8 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
                   )
                 )
               ) in
-            Feedback.msg_info Pp.(str "type_encode" ++ spc () ++ Printer.pr_econstr_env env sigma type_encode);
-            Feedback.msg_info Pp.(str "type_encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Typing.type_of env sigma type_encode |> snd));
+            debug_vcpu Pp.(fun () -> str "type_encode" ++ spc () ++ Printer.pr_econstr_env env sigma type_encode);
+            debug_vcpu Pp.(fun () -> str "type_encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Typing.type_of env sigma type_encode |> snd));
             Some {
               encoder_len = type_len;
               encoder_encode = type_encode;
@@ -508,9 +512,9 @@ let entry_derive_encoder (input_type_constr_expr : Constrexpr.constr_expr) (outp
       encoder_len = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_len context;
       encoder_encode = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_encode context;
     } in
-    Feedback.msg_info Pp.(str "len =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_len);
-    Feedback.msg_info Pp.(str "encode =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_encode);
-    Feedback.msg_info Pp.(str "encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Retyping.get_type_of env sigma input_type_encoder.encoder_encode));
+    debug_vcpu Pp.(fun () -> str "len =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_len);
+    debug_vcpu Pp.(fun () -> str "encode =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_encode);
+    debug_vcpu Pp.(fun () -> str "encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Retyping.get_type_of env sigma input_type_encoder.encoder_encode));
     match output_id with
     | Some output_id -> (
       let input_type_len_constant =
@@ -600,7 +604,7 @@ let rec repr_to_constr_expr (repr : repr) : Constrexpr.constr_expr =
     ))
 
 let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (type_ : EConstr.t) : repr list =
-  Feedback.msg_info Pp.(str "enumerate_reprs" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
+  debug_vcpu Pp.(fun () -> str "enumerate_reprs" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_head, type_args = EConstr.decompose_app sigma type_ in
   match EConstr.kind sigma type_head, type_args with
@@ -688,6 +692,14 @@ let compilation_substl_opt (sigma : Evd.evar_map) (l : EConstr.t option list) (c
     compilation_eval_circuit = compilation.compilation_eval_circuit |> econstr_substl_opt sigma l;
   }
 
+let compilation_apply (compilation : compilation) (l : EConstr.t array) : compilation =
+  {
+    compilation_orig = EConstr.mkApp (compilation.compilation_orig, l);
+    compilation_circuit = EConstr.mkApp (compilation.compilation_circuit, l);
+    compilation_wf_circuit = EConstr.mkApp (compilation.compilation_wf_circuit, l);
+    compilation_eval_circuit = EConstr.mkApp (compilation.compilation_eval_circuit, l);
+  }
+
 let compilation_type_to_context (annot : Names.Name.t EConstr.binder_annot) (compilation : compilation) : EConstr.rel_context =
   [
     Context.Rel.Declaration.LocalAssum (annot |> annot_add_suffix "_eval_circuit", compilation.compilation_eval_circuit);
@@ -705,7 +717,7 @@ let compilation_to_array (compilation : compilation) : EConstr.t array =
   |]
 
 let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (input_encoder : encoder) (type_ : EConstr.t) (type_repr : repr) : compilation =
-  Feedback.msg_info Pp.(str "get_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
+  debug_vcpu Pp.(fun () -> str "get_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_compilation_type =
   match type_repr with
@@ -998,7 +1010,7 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
     | _ -> CErrors.user_err Pp.(str "Unexpected type:" ++ spc () ++ Printer.pr_econstr_env env sigma type_)
     in
   let test_type_compilation_type = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (type_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "el_type"))) in
-  (* Feedback.msg_info Pp.(str "test_type_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_ ++ spc () ++ str "=" ++ spc () ++ Printer.pr_econstr_env env sigma test_type_compilation_type); *)
+  (* debug_vcpu Pp.(fun () -> str "test_type_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_ ++ spc () ++ str "=" ++ spc () ++ Printer.pr_econstr_env env sigma test_type_compilation_type); *)
   Typing.type_of env sigma test_type_compilation_type |> ignore;
   type_compilation_type
 
@@ -1549,10 +1561,10 @@ let mk_compilation_comp_select_2 (env : Environ.env) (sigma : Evd.evar_map) (n :
     )
 
 let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (context_reprs : repr list) (context_compilations : compilation option list) (input_encoder : encoder) (c : EConstr.t) : (repr * compilation) Seq.t =
-  Feedback.msg_info Pp.(str "create_compilations" ++ spc () ++ Printer.pr_econstr_env env sigma c);
+  debug_vcpu Pp.(fun () -> str "create_compilations" ++ spc () ++ Printer.pr_econstr_env env sigma c);
   let env_test =
     EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (env |> EConstr.rel_context) in
-  Feedback.msg_info Pp.(str "env =" ++ spc () ++ Printer.pr_econstr_env (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test);
+  (* debug_vcpu Pp.(fun () -> str "env =" ++ spc () ++ Printer.pr_econstr_env (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test); *)
   assert (env_test |> EConstr.Vars.closed0 sigma);
   Typing.type_of (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test |> ignore;
   Typing.type_of env sigma c |> ignore;
@@ -1840,7 +1852,10 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
           |> List.map (fun arg ->
             create_compilations env sigma context_encoders context_reprs context_compilations input_encoder arg
               |> Seq.filter_map (fun (arg_repr, arg_compilation) ->
-                if arg_repr = ReprTransformed then Some arg_compilation else None
+                if arg_repr = ReprTransformed then
+                  Some arg_compilation
+                else
+                  None
               )
           )
           |> seq_product_list
@@ -2005,28 +2020,9 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                 if c_2_repr = ReprRaw then
                   Seq.return (
                     c_1_repr_2,
-                    {
-                      compilation_orig =
-                        EConstr.mkApp (
-                          c_1_compilation.compilation_orig,
-                          [|c_2_compilation.compilation_orig|]
-                        );
-                      compilation_circuit =
-                        EConstr.mkApp (
-                          c_1_compilation.compilation_circuit,
-                          [|c_2_compilation.compilation_orig|]
-                        );
-                      compilation_wf_circuit =
-                        EConstr.mkApp (
-                          c_1_compilation.compilation_wf_circuit,
-                          [|c_2_compilation.compilation_orig|]
-                        );
-                      compilation_eval_circuit =
-                        EConstr.mkApp (
-                          c_1_compilation.compilation_eval_circuit,
-                          [|c_2_compilation.compilation_orig|]
-                        );
-                    }
+                    compilation_apply
+                      c_1_compilation
+                      [|c_2_compilation.compilation_orig|]
                   )
                 else if not (c_2_type |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) then
                   Seq.return (
@@ -2077,28 +2073,9 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
               | Some c_2_encoder ->
                 Seq.return (
                   c_1_repr_2,
-                  {
-                    compilation_orig =
-                      EConstr.mkApp (
-                        c_1_compilation.compilation_orig,
-                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
-                      );
-                    compilation_circuit =
-                      EConstr.mkApp (
-                        c_1_compilation.compilation_circuit,
-                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
-                      );
-                    compilation_wf_circuit =
-                      EConstr.mkApp (
-                        c_1_compilation.compilation_wf_circuit,
-                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
-                      );
-                    compilation_eval_circuit =
-                      EConstr.mkApp (
-                        c_1_compilation.compilation_eval_circuit,
-                        [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
-                      );
-                  }
+                  compilation_apply
+                    c_1_compilation
+                    [|c_2; c_2_encoder.encoder_len; c_2_encoder.encoder_encode|]
                 )
               | None -> Seq.empty
             else
@@ -2166,43 +2143,112 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                       |> List.map (create_encoder env sigma context_encoders)
                       |> List.map Option.get
                   ) in
-                CArray.map2_i (fun constructor_1_i (constructor_1_type_ctx, _) (_, c_br_1_t) ->
-                  (CArray.map3_i (fun constructor_2_i (constructor_2_type_ctx, _) constructor_2_type_hyp_encoders (_, c_br_2_t) ->
-                    let arg_encoders =
-                      constructor_2_type_hyp_encoders |> List.mapi (fun arg_i constructor_2_type_hyp_encoder ->
-                        {
-                          encoder_len =
-                            constructor_2_type_hyp_encoder.encoder_len
-                              |> EConstr.Vars.lift (List.length constructor_1_type_ctx);
-                          encoder_encode =
-                            EConstr.mkApp (
-                              constructor_2_type_hyp_encoder.encoder_encode
-                                |> EConstr.Vars.lift (List.length constructor_1_type_ctx),
-                              [|EConstr.mkRel (List.length constructor_1_type_ctx - arg_i)|]
-                            );
-                        }
-                      ) in
-                    let constructor_2_encoder, g =
-                      fold_right_i_increasing
-                        (fun arg_i arg_encoder (args_encoder, g) ->
-                          {
-                            encoder_len =
-                              mk_nat_add env arg_encoder.encoder_len args_encoder.encoder_len;
-                            encoder_encode =
-                              mk_vector_app env
-                                (mk_bool_type env)
-                                arg_encoder.encoder_len
-                                args_encoder.encoder_len
-                                arg_encoder.encoder_encode
-                                args_encoder.encoder_encode;
-                          },
-                          fun constructor_2_ctx constructor_2_compilation ->
-                            let arg_compilation_transforms, rest_args_compilation_transform = g constructor_2_ctx constructor_2_compilation in
-                            let f compilation_transform =
-                              fun args_compilation ->
-                                compilation_transform (
-                                  mk_compilation_comp_suffix env
-                                    (mk_unit_tt env)
+                Array.map2 (fun (constructor_type_hyps, _) (_, c_br_t) ->
+                  let br_ctx, br_ctx_reprs, br_ctx_compilations =
+                    List.fold_left (fun (br_ctx, br_ctx_reprs, br_ctx_compilations) arg_type ->
+                      let arg_compilation_type =
+                        get_compilation_type
+                          (env |> EConstr.push_rel_context br_ctx)
+                          sigma
+                          ((br_ctx |> List.map (fun _ -> None)) @ (context_encoders |> List.map (Option.map (encoder_lift (List.length br_ctx)))))
+                          (input_encoder |> encoder_lift (List.length br_ctx))
+                          (arg_type |> EConstr.Vars.lift (List.length br_ctx))
+                          ReprTransformed in
+                      let arg_ctx = arg_compilation_type |> compilation_type_to_context EConstr.anonR in
+                      arg_ctx @
+                      br_ctx,
+                      ReprRaw ::
+                      ReprRaw ::
+                      ReprRaw ::
+                      ReprTransformed ::
+                      br_ctx_reprs,
+                      None ::
+                      None ::
+                      None ::
+                      Some {
+                        compilation_orig = EConstr.mkRel 4;
+                        compilation_circuit = EConstr.mkRel 3;
+                        compilation_wf_circuit = EConstr.mkRel 2;
+                        compilation_eval_circuit = EConstr.mkRel 1;
+                      } ::
+                      (br_ctx_compilations |> List.map (Option.map (compilation_lift (List.length arg_ctx))))
+                    ) ([], [], []) constructor_type_hyps in
+                  let br_t =
+                    c_br_t
+                      |> EConstr.Vars.liftn (List.length br_ctx) (List.length constructor_type_hyps + 1)
+                      |> EConstr.Vars.substl (constructor_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (3 + 4 * i + 1))) in
+                  create_compilations
+                    (env |> EConstr.push_rel_context br_ctx)
+                    sigma
+                    ((br_ctx |> List.map (fun _ -> None)) @ (context_encoders |> List.map (Option.map (encoder_lift (List.length br_ctx)))))
+                    (br_ctx_reprs @ context_reprs)
+                    (br_ctx_compilations @ (context_compilations |> List.map (Option.map (compilation_lift (List.length br_ctx)))))
+                    (input_encoder |> encoder_lift (List.length br_ctx))
+                    br_t
+                    |> Seq.filter_map (fun (c_br_t_repr, c_br_t_compilation) ->
+                      if c_br_t_repr = ReprTransformed then
+                        Some c_br_t_compilation
+                      else
+                        None
+                    )
+                ) constructor_types_hyps_concl c_brs
+                  |> seq_product_array
+                  |> Seq.flat_map (fun c_brs_t_compilation ->
+                    Array.mapi (fun constructor_1_i (constructor_1_type_ctx, _) ->
+                      (CArray.map2_i (fun constructor_2_i constructor_2_type_hyp_encoders c_br_2_t_compilation ->
+                        let arg_encoders =
+                          constructor_2_type_hyp_encoders |> List.mapi (fun arg_i constructor_2_type_hyp_encoder ->
+                            {
+                              encoder_len =
+                                constructor_2_type_hyp_encoder.encoder_len
+                                  |> EConstr.Vars.lift (List.length constructor_1_type_ctx);
+                              encoder_encode =
+                                EConstr.mkApp (
+                                  constructor_2_type_hyp_encoder.encoder_encode
+                                    |> EConstr.Vars.lift (List.length constructor_1_type_ctx),
+                                  [|EConstr.mkRel (List.length constructor_1_type_ctx - arg_i)|]
+                                );
+                            }
+                          ) in
+                        let constructor_2_encoder, g =
+                          fold_right_i_increasing
+                            (fun arg_i arg_encoder (args_encoder, g) ->
+                              {
+                                encoder_len =
+                                  mk_nat_add env arg_encoder.encoder_len args_encoder.encoder_len;
+                                encoder_encode =
+                                  mk_vector_app env
+                                    (mk_bool_type env)
+                                    arg_encoder.encoder_len
+                                    args_encoder.encoder_len
+                                    arg_encoder.encoder_encode
+                                    args_encoder.encoder_encode;
+                              },
+                              fun constructor_2_ctx constructor_2_compilation ->
+                                let arg_compilation_transforms, rest_args_compilation_transform = g constructor_2_ctx constructor_2_compilation in
+                                let f compilation_transform =
+                                  fun args_compilation ->
+                                    compilation_transform (
+                                      mk_compilation_comp_suffix env
+                                        (mk_unit_tt env)
+                                        (input_encoder.encoder_len
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx + List.length constructor_1_type_ctx))
+                                        (arg_encoder.encoder_len
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx))
+                                        (args_encoder.encoder_len
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx))
+                                        args_compilation
+                                        (input_encoder.encoder_encode
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx + List.length constructor_1_type_ctx))
+                                        (arg_encoder.encoder_encode
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx))
+                                        (args_encoder.encoder_encode
+                                          |> EConstr.Vars.lift (List.length constructor_2_ctx))
+                                    ) in
+                                (fun args_compilation ->
+                                  mk_compilation_comp_prefix env
+                                    (EConstr.mkRel (List.length constructor_1_type_ctx - arg_i)
+                                      |> EConstr.Vars.lift (List.length constructor_2_ctx))
                                     (input_encoder.encoder_len
                                       |> EConstr.Vars.lift (List.length constructor_2_ctx + List.length constructor_1_type_ctx))
                                     (arg_encoder.encoder_len
@@ -2216,349 +2262,306 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                                       |> EConstr.Vars.lift (List.length constructor_2_ctx))
                                     (args_encoder.encoder_encode
                                       |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                                ) in
-                            (fun args_compilation ->
-                              mk_compilation_comp_prefix env
-                                (EConstr.mkRel (List.length constructor_1_type_ctx - arg_i)
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                                (input_encoder.encoder_len
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx + List.length constructor_1_type_ctx))
-                                (arg_encoder.encoder_len
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                                (args_encoder.encoder_len
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                                args_compilation
-                                (input_encoder.encoder_encode
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx + List.length constructor_1_type_ctx))
-                                (arg_encoder.encoder_encode
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                                (args_encoder.encoder_encode
-                                  |> EConstr.Vars.lift (List.length constructor_2_ctx))
-                            ) ::
-                            (arg_compilation_transforms |> List.map f),
-                            f rest_args_compilation_transform
-                        )
-                        arg_encoders
-                        (
-                          {
-                            encoder_len = to_nat_constr env 0;
-                            encoder_encode = to_vector_constr env (mk_bool_type env) [];
-                          },
-                          fun _ _ ->
-                            [],
-                            (fun args_compilation -> args_compilation)
-                        ) in
-                    (if constructor_2_i = constructor_1_i then
-                      constructor_2_encoder
-                    else
-                      let placeholder =
-                        mk_vector_repeat env
-                          (mk_bool_type env)
-                          (to_bool_constr env false)
-                          constructor_2_encoder.encoder_len in
-                      {
-                        encoder_len = constructor_2_encoder.encoder_len;
-                        encoder_encode = placeholder;
-                      }),
-                    fun constructor_2_ctx constructor_2_compilation ->
-                      let arg_compilation_transforms, _ = g constructor_2_ctx constructor_2_compilation in
-                      let arg_compilations =
-                        arg_compilation_transforms |> List.map (fun arg_compilation_transform ->
-                          arg_compilation_transform constructor_2_compilation
-                        ) in
-                      (* Feedback.msg_info Pp.(str "c_br_2_t" ++ spc () ++ Printer.pr_econstr_env env sigma c_br_2_t); *)
-                      (* Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 0).compilation_orig);
-                      Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 1).compilation_orig);
-                      Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 0).compilation_circuit);
-                      Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 1).compilation_circuit); *)
-                      Feedback.msg_info Pp.(str "constructor_1_type_ctx =" ++ spc () ++ Printer.pr_econstr_env env sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp constructor_1_type_ctx));
-                      Feedback.msg_info Pp.(str "constructor_2_ctx =" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context constructor_1_type_ctx) sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp constructor_2_ctx));
-                      create_compilations
-                        (env |> EConstr.push_rel_context (
-                          (constructor_2_type_ctx |> EConstr.Vars.lift_rel_context (List.length constructor_2_ctx + List.length constructor_1_type_ctx)) @
-                          constructor_2_ctx @
-                          constructor_1_type_ctx
-                        ))
-                        sigma
-                        (
-                          (constructor_2_type_ctx |> List.map (fun _ -> None)) @
-                          (constructor_2_ctx |> List.map (fun _ -> None)) @
-                          (constructor_1_type_ctx |> List.map (fun _ -> None)) @
-                          (context_encoders |> List.map (Option.map (encoder_lift (List.length constructor_2_type_ctx + List.length constructor_2_ctx + List.length constructor_1_type_ctx))))
-                        )
-                        (
-                          (constructor_2_type_ctx |> List.map (fun _ -> ReprTransformed)) @
-                          (constructor_2_ctx |> List.map (fun _ -> ReprRaw)) @
-                          (constructor_1_type_ctx |> List.map (fun _ -> ReprRaw)) @
-                          context_reprs
-                        )
-                        (
-                          (arg_compilations |> List.rev |> List.map (fun arg_compilation -> Some (arg_compilation |> compilation_lift (List.length constructor_2_type_ctx)))) @
-                          (constructor_2_ctx |> List.map (fun _ -> None)) @
-                          (constructor_1_type_ctx |> List.map (fun _ -> None)) @
-                          (context_compilations |> List.map (Option.map (compilation_lift (List.length constructor_2_type_ctx + List.length constructor_2_ctx + List.length constructor_1_type_ctx))))
-                        )
-                        (input_encoder
-                          |> encoder_lift (List.length constructor_2_type_ctx + List.length constructor_2_ctx + List.length constructor_1_type_ctx))
-                        (c_br_2_t
-                          |> EConstr.Vars.liftn (List.length constructor_2_ctx + List.length constructor_1_type_ctx) (List.length constructor_2_type_ctx + 1))
-                        |> Seq.filter_map (fun (c_br_t_repr, c_br_t_compilation) ->
-                          if c_br_t_repr = ReprTransformed then
-                            (* let () = Feedback.msg_info Pp.(str "RES" ++ spc () ++ Printer.pr_econstr_env env sigma c_br_t_compilation.compilation_orig) in *)
-                            (* Feedback.msg_info Pp.(str "constructor_2_type_ctx" ++ spc () ++ int (List.length constructor_2_type_ctx)); *)
-                            Some (c_br_t_compilation |> compilation_substl_opt sigma (constructor_2_type_ctx |> List.map (fun _ -> None)))
-                          else
-                            None
-                        )
-                  ) constructor_types_ctx_concl constructor_types_hyp_encoders c_brs
-                    |> Array.to_list
-                    |> reduce_right_i_increasing (fun constructor_2_i (encoder_1, compilations_1) (encoder_2, compilations_2) ->
-                      {
-                        encoder_len =
-                          mk_nat_add env (to_nat_constr env 1) (mk_nat_add env encoder_1.encoder_len encoder_2.encoder_len);
-                        encoder_encode =
-                          mk_vector_app env
-                            (mk_bool_type env)
-                            (to_nat_constr env 1)
-                            (mk_nat_add env encoder_1.encoder_len encoder_2.encoder_len)
-                            (to_vector_constr env (mk_bool_type env) [to_bool_constr env (constructor_2_i = constructor_1_i)])
-                            (mk_vector_app env
+                                ) ::
+                                (arg_compilation_transforms |> List.map f),
+                                f rest_args_compilation_transform
+                            )
+                            arg_encoders
+                            (
+                              {
+                                encoder_len = to_nat_constr env 0;
+                                encoder_encode = to_vector_constr env (mk_bool_type env) [];
+                              },
+                              fun _ _ ->
+                                [],
+                                (fun args_compilation -> args_compilation)
+                            ) in
+                        (if constructor_2_i = constructor_1_i then
+                          constructor_2_encoder
+                        else
+                          let placeholder =
+                            mk_vector_repeat env
                               (mk_bool_type env)
-                              encoder_1.encoder_len
-                              encoder_2.encoder_len
-                              encoder_1.encoder_encode
-                              encoder_2.encoder_encode)
-                      },
-                      fun ctx compilation ->
-                        (
-                          if constructor_2_i = constructor_1_i then
-                            mk_compilation_comp_select_1
-                          else
-                            mk_compilation_comp_select_2
-                        ) env sigma
-                          (input_encoder.encoder_len
-                            |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
-                          (encoder_1.encoder_len
-                            |> EConstr.Vars.lift (List.length ctx))
-                          (encoder_2.encoder_len
-                            |> EConstr.Vars.lift (List.length ctx))
-                          (c_return_t_unlifted_encoder.encoder_len
-                            |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
-                          compilation
-                          (fun ctx' compilation' -> compilations_1 (ctx' @ ctx) compilation')
-                          (fun ctx' compilation' -> compilations_2 (ctx' @ ctx) compilation')
-                          (input_encoder.encoder_encode
-                            |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
-                          (encoder_1.encoder_encode
-                            |> EConstr.Vars.lift (List.length ctx))
-                          (encoder_2.encoder_encode
-                            |> EConstr.Vars.lift (List.length ctx))
-                          (fun t ->
-                            EConstr.mkApp (
-                              c_return_t_unlifted_encoder.encoder_encode
-                                |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx),
-                              [|t|]
-                            )
+                              (to_bool_constr env false)
+                              constructor_2_encoder.encoder_len in
+                          {
+                            encoder_len = constructor_2_encoder.encoder_len;
+                            encoder_encode = placeholder;
+                          }),
+                        fun constructor_2_ctx constructor_2_compilation ->
+                          let arg_compilation_transforms, _ = g constructor_2_ctx constructor_2_compilation in
+                          let arg_compilations =
+                            arg_compilation_transforms |> List.map (fun arg_compilation_transform ->
+                              arg_compilation_transform constructor_2_compilation
+                            ) in
+                          (* Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 0).compilation_orig);
+                          Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 1).compilation_orig);
+                          Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 0).compilation_circuit);
+                          Feedback.msg_info Pp.(str "ARG" ++ spc () ++ Printer.pr_econstr_env env sigma (List.nth arg_compilations 1).compilation_circuit); *)
+                          (* Feedback.msg_info Pp.(str "constructor_1_type_ctx =" ++ spc () ++ Printer.pr_econstr_env env sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp constructor_1_type_ctx));
+                          Feedback.msg_info Pp.(str "constructor_2_ctx =" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context constructor_1_type_ctx) sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp constructor_2_ctx)); *)
+                          Seq.return (
+                            c_br_2_t_compilation
+                              |> compilation_liftn (List.length constructor_2_ctx + List.length constructor_1_type_ctx) (4 * List.length arg_compilations + 1)
+                              |> compilation_substl (
+                                arg_compilations
+                                  |> List.rev
+                                  |> List.map (fun arg_compilation ->
+                                    arg_compilation |> compilation_to_array |> Array.to_list |> List.rev
+                                  )
+                                  |> List.flatten
+                              )
                           )
-                    )
-                    |> snd)
-                    (c_scrutinee_ctx
-                      |> EConstr.Vars.lift_rel_context (List.length constructor_1_type_ctx))
-                    {
-                      compilation_orig = EConstr.mkRel 4;
-                      compilation_circuit = EConstr.mkRel 3;
-                      compilation_wf_circuit = EConstr.mkRel 2;
-                      compilation_eval_circuit = EConstr.mkRel 1;
-                    }
-                    |> Seq.map (compilation_liftn (List.length constructor_1_type_ctx + List.length c_scrutinee_ctx) (List.length c_scrutinee_ctx + List.length constructor_1_type_ctx + 1))
-                    |> Seq.map (compilation_substl (
-                      (c_scrutinee_ctx |> List.mapi (fun i _ -> EConstr.mkRel (List.length constructor_1_type_ctx + i + 1))) @
-                      (constructor_1_type_ctx |> List.mapi (fun i _ -> EConstr.mkRel (i + 1)))
-                    ))
-                ) constructor_types_ctx_concl c_brs
-                |> seq_zip_strict_array
-                |> Seq.flat_map (fun c_brs_t_compilation ->
-                  let c_compilation_gen_orig =
-                    EConstr.mkCase (
-                      ci,
-                      u,
-                      c_params |> Array.map (EConstr.Vars.lift (List.length c_scrutinee_ctx)),
-                      (
-                        (
-                          c_return_annots,
-                          c_return_t_unlifted_compilation_type.compilation_orig
-                            |> EConstr.Vars.liftn (List.length c_scrutinee_ctx) (0 + 1)
-                            |> EConstr.Vars.substl []
-                            |> EConstr.Vars.lift 1
-                        ),
-                        EConstr.ERelevance.relevant
-                      ),
-                      Constr.NoInvert,
-                      EConstr.mkRel 4,
-                      Array.map2 (fun (c_br_annots, _) c_br_t_compilation ->
-                        (
-                          c_br_annots,
-                          c_br_t_compilation.compilation_orig
-                        )
-                      ) c_brs c_brs_t_compilation
-                    ) in
-                  (* Feedback.msg_info Pp.(str "A_0" ++ spc () ++ int (c_brs_t_compilation.(0).compilation_orig |> EConstr.destRel sigma)); *)
-                  (* Feedback.msg_info Pp.(str "HEY_1" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_orig); *)
-                  let c_compilation_gen_circuit_all =
-                    Array.map2 (fun (constructor_type_hyps, _) br_t_compilation ->
-                      br_t_compilation.compilation_circuit
-                        |> econstr_substl_opt sigma (constructor_type_hyps |> List.map (fun _ -> None))
-                    ) constructor_types_hyps_concl c_brs_t_compilation in
-                  let c_compilation_gen_circuit = c_compilation_gen_circuit_all.(0) in
-                  (* Feedback.msg_info Pp.(str "A_1" ++ spc () ++ Printer.pr_econstr_env env sigma (c_compilation_gen_circuit_all.(0)));
-                  Feedback.msg_info Pp.(str "A_2" ++ spc () ++ Printer.pr_econstr_env env sigma (c_compilation_gen_circuit_all.(1))); *)
-                  assert (c_compilation_gen_circuit_all |> Array.for_all (EConstr.eq_constr sigma c_compilation_gen_circuit));
-                  (* Feedback.msg_info Pp.(str "HEY_2" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_circuit); *)
-                  let c_compilation_gen_wf_circuit_all =
-                    Array.map2 (fun (constructor_type_hyps, _) br_t_compilation ->
-                      br_t_compilation.compilation_wf_circuit
-                        |> econstr_substl_opt sigma (constructor_type_hyps |> List.map (fun _ -> None))
-                    ) constructor_types_hyps_concl c_brs_t_compilation in
-                  let c_compilation_gen_wf_circuit = c_compilation_gen_wf_circuit_all.(0) in
-                  assert (c_compilation_gen_wf_circuit_all |> Array.for_all (EConstr.eq_constr sigma c_compilation_gen_wf_circuit));
-                  (* Feedback.msg_info Pp.(str "HEY_3" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_wf_circuit); *)
-                  let c_compilation_gen_eval_circuit =
-                    EConstr.mkApp (
-                      EConstr.mkCase (
-                        ci,
-                        u,
-                        c_params |> Array.map (EConstr.Vars.lift (List.length c_scrutinee_ctx)),
-                        (
-                          (
-                            c_return_annots,
-                            EConstr.mkProd (EConstr.anonR,
-                              mk_eq_type env
-                                (mk_vector_type env
+                      ) constructor_types_hyp_encoders c_brs_t_compilation
+                        |> Array.to_list
+                        |> reduce_right_i_increasing (fun constructor_2_i (encoder_1, compilations_1) (encoder_2, compilations_2) ->
+                          {
+                            encoder_len =
+                              mk_nat_add env (to_nat_constr env 1) (mk_nat_add env encoder_1.encoder_len encoder_2.encoder_len);
+                            encoder_encode =
+                              mk_vector_app env
+                                (mk_bool_type env)
+                                (to_nat_constr env 1)
+                                (mk_nat_add env encoder_1.encoder_len encoder_2.encoder_len)
+                                (to_vector_constr env (mk_bool_type env) [to_bool_constr env (constructor_2_i = constructor_1_i)])
+                                (mk_vector_app env
                                   (mk_bool_type env)
-                                  (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx)))
-                                (EConstr.mkApp (
-                                  c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx),
-                                  [|EConstr.mkRel 5|]
-                                ))
-                                (EConstr.mkApp (
-                                  c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx),
-                                  [|EConstr.mkRel 1|]
-                                )),
-                                c_return_t_unlifted_compilation_type.compilation_eval_circuit
-                                  |> EConstr.Vars.liftn (2 + List.length c_scrutinee_ctx) (3 + 1)
-                                  |> EConstr.Vars.substl [
-                                    c_compilation_gen_wf_circuit
-                                      |> EConstr.Vars.lift 2;
-                                    c_compilation_gen_circuit
-                                      |> EConstr.Vars.lift 2;
-                                    c_compilation_gen_orig
-                                      |> EConstr.Vars.liftn (2 + List.length c_scrutinee_ctx) (List.length c_scrutinee_ctx + 1)
-                                      |> EConstr.Vars.substl [
-                                        EConstr.mkRel 3;
-                                        EConstr.mkRel 4;
-                                        EConstr.mkRel 5;
-                                        EConstr.mkRel 2;
-                                      ];
-                                  ]
-                            )
-                          ),
-                          EConstr.ERelevance.relevant
-                        ),
-                        Constr.NoInvert,
-                        EConstr.mkRel 4,
-                        CArray.map3_i (fun constructor_i (constructor_type_hyps, _) (c_br_annots, _) c_br_t_compilation ->
-                          (
-                            c_br_annots,
-                            let constructor_app =
-                              EConstr.mkApp (
-                                EConstr.mkConstructU ((ind, constructor_i + 1), u),
-                                (Array.append
-                                  (c_params |> Array.map (EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
-                                  (constructor_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (List.length constructor_type_hyps - i)) |> Array.of_list))
-                              ) in
-                            EConstr.mkLambda (EConstr.anonR,
-                              mk_eq_type env
-                                (mk_vector_type env
-                                  (mk_bool_type env)
-                                  (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
-                                (EConstr.mkApp (
-                                  c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx),
-                                  [|EConstr.mkRel (List.length constructor_type_hyps + 4)|]
-                                ))
-                                (EConstr.mkApp (
-                                  c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx),
-                                  [|constructor_app|]
-                                )),
-                              c_br_t_compilation.compilation_eval_circuit
-                                |> EConstr.Vars.liftn (List.length constructor_type_hyps + 5) (List.length constructor_type_hyps + 5)
-                                |> EConstr.Vars.substl (
-                                  (constructor_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (1 + i + 1))) @
-                                  [
-                                    mk_eq_trans env
-                                      (mk_vector_type env
-                                        (mk_bool_type env)
-                                        (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
-                                      (
-                                        mk_circuit_eval env
-                                          (input_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
-                                          (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
-                                          (EConstr.mkRel (1 + List.length constructor_type_hyps + 3))
-                                          (input_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
-                                      )
-                                      (EConstr.mkApp (
-                                        c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx),
-                                        [|EConstr.mkRel (1 + List.length constructor_type_hyps + 4)|]
-                                      ))
-                                      (EConstr.mkApp (
-                                        c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx),
-                                        [|constructor_app |> EConstr.Vars.lift 1|]
-                                      ))
-                                      (EConstr.mkRel (1 + List.length constructor_type_hyps + 1))
-                                      (EConstr.mkRel 1);
-                                    EConstr.mkRel (1 + List.length constructor_type_hyps + 2);
-                                    EConstr.mkRel (1 + List.length constructor_type_hyps + 3);
-                                    constructor_app |> EConstr.Vars.lift 1;
-                                  ]
+                                  encoder_1.encoder_len
+                                  encoder_2.encoder_len
+                                  encoder_1.encoder_encode
+                                  encoder_2.encoder_encode)
+                          },
+                          fun ctx compilation ->
+                            (
+                              if constructor_2_i = constructor_1_i then
+                                mk_compilation_comp_select_1
+                              else
+                                mk_compilation_comp_select_2
+                            ) env sigma
+                              (input_encoder.encoder_len
+                                |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
+                              (encoder_1.encoder_len
+                                |> EConstr.Vars.lift (List.length ctx))
+                              (encoder_2.encoder_len
+                                |> EConstr.Vars.lift (List.length ctx))
+                              (c_return_t_unlifted_encoder.encoder_len
+                                |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
+                              compilation
+                              (fun ctx' compilation' -> compilations_1 (ctx' @ ctx) compilation')
+                              (fun ctx' compilation' -> compilations_2 (ctx' @ ctx) compilation')
+                              (input_encoder.encoder_encode
+                                |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx))
+                              (encoder_1.encoder_encode
+                                |> EConstr.Vars.lift (List.length ctx))
+                              (encoder_2.encoder_encode
+                                |> EConstr.Vars.lift (List.length ctx))
+                              (fun t ->
+                                EConstr.mkApp (
+                                  c_return_t_unlifted_encoder.encoder_encode
+                                    |> EConstr.Vars.lift (List.length ctx + List.length constructor_1_type_ctx),
+                                  [|t|]
                                 )
+                              )
+                        )
+                        |> snd)
+                        (c_scrutinee_ctx
+                          |> EConstr.Vars.lift_rel_context (List.length constructor_1_type_ctx))
+                        {
+                          compilation_orig = EConstr.mkRel 4;
+                          compilation_circuit = EConstr.mkRel 3;
+                          compilation_wf_circuit = EConstr.mkRel 2;
+                          compilation_eval_circuit = EConstr.mkRel 1;
+                        }
+                        |> Seq.map (compilation_liftn (List.length constructor_1_type_ctx + List.length c_scrutinee_ctx) (List.length c_scrutinee_ctx + List.length constructor_1_type_ctx + 1))
+                        |> Seq.map (compilation_substl (
+                          (c_scrutinee_ctx |> List.mapi (fun i _ -> EConstr.mkRel (List.length constructor_1_type_ctx + i + 1))) @
+                          (constructor_1_type_ctx |> List.mapi (fun i _ -> EConstr.mkRel (i + 1)))
+                        ))
+                    ) constructor_types_ctx_concl
+                    |> seq_zip_strict_array
+                    |> Seq.flat_map (fun c_brs_t_compilation ->
+                      let c_compilation_gen_orig =
+                        EConstr.mkCase (
+                          ci,
+                          u,
+                          c_params |> Array.map (EConstr.Vars.lift (List.length c_scrutinee_ctx)),
+                          (
+                            (
+                              c_return_annots,
+                              c_return_t_unlifted_compilation_type.compilation_orig
+                                |> EConstr.Vars.liftn (List.length c_scrutinee_ctx) (0 + 1)
+                                |> EConstr.Vars.substl []
+                                |> EConstr.Vars.lift 1
+                            ),
+                            EConstr.ERelevance.relevant
+                          ),
+                          Constr.NoInvert,
+                          EConstr.mkRel 4,
+                          Array.map2 (fun (c_br_annots, _) c_br_t_compilation ->
+                            (
+                              c_br_annots,
+                              c_br_t_compilation.compilation_orig
                             )
-                          )
-                        ) constructor_types_hyps_concl c_brs c_brs_t_compilation
-                      ),
-                      [|mk_eq_refl env
-                        (mk_vector_type env
-                          (mk_bool_type env)
-                          (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (List.length c_scrutinee_ctx)))
-                        (EConstr.mkApp (
-                          c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length c_scrutinee_ctx),
-                          [|EConstr.mkRel 4|]
-                        ))|]
-                    ) in
-                  (* Feedback.msg_info Pp.(str "HEY_4" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_eval_circuit); *)
-                  let c_scrutinee_compilation_subst =
-                    [
-                      c_scrutinee_compilation.compilation_eval_circuit;
-                      c_scrutinee_compilation.compilation_wf_circuit;
-                      c_scrutinee_compilation.compilation_circuit;
-                      c_scrutinee_compilation.compilation_orig;
-                    ] in
-                  Seq.return (
-                    ReprTransformed,
-                    {
-                      compilation_orig =
-                        c_compilation_gen_orig
-                          |> EConstr.Vars.substl c_scrutinee_compilation_subst;
-                      compilation_circuit =
-                        c_compilation_gen_circuit
-                          |> EConstr.Vars.substl c_scrutinee_compilation_subst;
-                      compilation_wf_circuit =
-                        c_compilation_gen_wf_circuit
-                          |> EConstr.Vars.substl c_scrutinee_compilation_subst;
-                      compilation_eval_circuit =
-                        c_compilation_gen_eval_circuit
-                          |> EConstr.Vars.substl c_scrutinee_compilation_subst;
-                    }
+                          ) c_brs c_brs_t_compilation
+                        ) in
+                      (* Feedback.msg_info Pp.(str "A_0" ++ spc () ++ int (c_brs_t_compilation.(0).compilation_orig |> EConstr.destRel sigma)); *)
+                      (* Feedback.msg_info Pp.(str "HEY_1" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_orig); *)
+                      let c_compilation_gen_circuit_all =
+                        Array.map2 (fun (constructor_type_hyps, _) br_t_compilation ->
+                          br_t_compilation.compilation_circuit
+                            |> econstr_substl_opt sigma (constructor_type_hyps |> List.map (fun _ -> None))
+                        ) constructor_types_hyps_concl c_brs_t_compilation in
+                      let c_compilation_gen_circuit = c_compilation_gen_circuit_all.(0) in
+                      (* Feedback.msg_info Pp.(str "A_1" ++ spc () ++ Printer.pr_econstr_env env sigma (c_compilation_gen_circuit_all.(0)));
+                      Feedback.msg_info Pp.(str "A_2" ++ spc () ++ Printer.pr_econstr_env env sigma (c_compilation_gen_circuit_all.(1))); *)
+                      assert (c_compilation_gen_circuit_all |> Array.for_all (EConstr.eq_constr sigma c_compilation_gen_circuit));
+                      (* Feedback.msg_info Pp.(str "HEY_2" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_circuit); *)
+                      let c_compilation_gen_wf_circuit_all =
+                        Array.map2 (fun (constructor_type_hyps, _) br_t_compilation ->
+                          br_t_compilation.compilation_wf_circuit
+                            |> econstr_substl_opt sigma (constructor_type_hyps |> List.map (fun _ -> None))
+                        ) constructor_types_hyps_concl c_brs_t_compilation in
+                      let c_compilation_gen_wf_circuit = c_compilation_gen_wf_circuit_all.(0) in
+                      assert (c_compilation_gen_wf_circuit_all |> Array.for_all (EConstr.eq_constr sigma c_compilation_gen_wf_circuit));
+                      (* Feedback.msg_info Pp.(str "HEY_3" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_wf_circuit); *)
+                      let c_compilation_gen_eval_circuit =
+                        EConstr.mkApp (
+                          EConstr.mkCase (
+                            ci,
+                            u,
+                            c_params |> Array.map (EConstr.Vars.lift (List.length c_scrutinee_ctx)),
+                            (
+                              (
+                                c_return_annots,
+                                EConstr.mkProd (EConstr.anonR,
+                                  mk_eq_type env
+                                    (mk_vector_type env
+                                      (mk_bool_type env)
+                                      (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx)))
+                                    (EConstr.mkApp (
+                                      c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx),
+                                      [|EConstr.mkRel 5|]
+                                    ))
+                                    (EConstr.mkApp (
+                                      c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length c_scrutinee_ctx),
+                                      [|EConstr.mkRel 1|]
+                                    )),
+                                    c_return_t_unlifted_compilation_type.compilation_eval_circuit
+                                      |> EConstr.Vars.liftn (2 + List.length c_scrutinee_ctx) (3 + 1)
+                                      |> EConstr.Vars.substl [
+                                        c_compilation_gen_wf_circuit
+                                          |> EConstr.Vars.lift 2;
+                                        c_compilation_gen_circuit
+                                          |> EConstr.Vars.lift 2;
+                                        c_compilation_gen_orig
+                                          |> EConstr.Vars.liftn (2 + List.length c_scrutinee_ctx) (List.length c_scrutinee_ctx + 1)
+                                          |> EConstr.Vars.substl [
+                                            EConstr.mkRel 3;
+                                            EConstr.mkRel 4;
+                                            EConstr.mkRel 5;
+                                            EConstr.mkRel 2;
+                                          ];
+                                      ]
+                                )
+                              ),
+                              EConstr.ERelevance.relevant
+                            ),
+                            Constr.NoInvert,
+                            EConstr.mkRel 4,
+                            CArray.map3_i (fun constructor_i (constructor_type_hyps, _) (c_br_annots, _) c_br_t_compilation ->
+                              (
+                                c_br_annots,
+                                let constructor_app =
+                                  EConstr.mkApp (
+                                    EConstr.mkConstructU ((ind, constructor_i + 1), u),
+                                    (Array.append
+                                      (c_params |> Array.map (EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
+                                      (constructor_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (List.length constructor_type_hyps - i)) |> Array.of_list))
+                                  ) in
+                                EConstr.mkLambda (EConstr.anonR,
+                                  mk_eq_type env
+                                    (mk_vector_type env
+                                      (mk_bool_type env)
+                                      (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
+                                    (EConstr.mkApp (
+                                      c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx),
+                                      [|EConstr.mkRel (List.length constructor_type_hyps + 4)|]
+                                    ))
+                                    (EConstr.mkApp (
+                                      c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length constructor_type_hyps + List.length c_scrutinee_ctx),
+                                      [|constructor_app|]
+                                    )),
+                                  c_br_t_compilation.compilation_eval_circuit
+                                    |> EConstr.Vars.liftn (List.length constructor_type_hyps + 5) (List.length constructor_type_hyps + 5)
+                                    |> EConstr.Vars.substl (
+                                      (constructor_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (1 + i + 1))) @
+                                      [
+                                        mk_eq_trans env
+                                          (mk_vector_type env
+                                            (mk_bool_type env)
+                                            (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx)))
+                                          (
+                                            mk_circuit_eval env
+                                              (input_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
+                                              (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
+                                              (EConstr.mkRel (1 + List.length constructor_type_hyps + 3))
+                                              (input_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx))
+                                          )
+                                          (EConstr.mkApp (
+                                            c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx),
+                                            [|EConstr.mkRel (1 + List.length constructor_type_hyps + 4)|]
+                                          ))
+                                          (EConstr.mkApp (
+                                            c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (1 + List.length constructor_type_hyps + List.length c_scrutinee_ctx),
+                                            [|constructor_app |> EConstr.Vars.lift 1|]
+                                          ))
+                                          (EConstr.mkRel (1 + List.length constructor_type_hyps + 1))
+                                          (EConstr.mkRel 1);
+                                        EConstr.mkRel (1 + List.length constructor_type_hyps + 2);
+                                        EConstr.mkRel (1 + List.length constructor_type_hyps + 3);
+                                        constructor_app |> EConstr.Vars.lift 1;
+                                      ]
+                                    )
+                                )
+                              )
+                            ) constructor_types_hyps_concl c_brs c_brs_t_compilation
+                          ),
+                          [|mk_eq_refl env
+                            (mk_vector_type env
+                              (mk_bool_type env)
+                              (c_scrutinee_encoder.encoder_len |> EConstr.Vars.lift (List.length c_scrutinee_ctx)))
+                            (EConstr.mkApp (
+                              c_scrutinee_encoder.encoder_encode |> EConstr.Vars.lift (List.length c_scrutinee_ctx),
+                              [|EConstr.mkRel 4|]
+                            ))|]
+                        ) in
+                      (* Feedback.msg_info Pp.(str "HEY_4" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_gen_eval_circuit); *)
+                      let c_scrutinee_compilation_subst =
+                        [
+                          c_scrutinee_compilation.compilation_eval_circuit;
+                          c_scrutinee_compilation.compilation_wf_circuit;
+                          c_scrutinee_compilation.compilation_circuit;
+                          c_scrutinee_compilation.compilation_orig;
+                        ] in
+                      Seq.return (
+                        ReprTransformed,
+                        {
+                          compilation_orig =
+                            c_compilation_gen_orig
+                              |> EConstr.Vars.substl c_scrutinee_compilation_subst;
+                          compilation_circuit =
+                            c_compilation_gen_circuit
+                              |> EConstr.Vars.substl c_scrutinee_compilation_subst;
+                          compilation_wf_circuit =
+                            c_compilation_gen_wf_circuit
+                              |> EConstr.Vars.substl c_scrutinee_compilation_subst;
+                          compilation_eval_circuit =
+                            c_compilation_gen_eval_circuit
+                              |> EConstr.Vars.substl c_scrutinee_compilation_subst;
+                        }
+                      )
+                    )
                   )
-                )
               | None -> Seq.empty
             else if c_scrutinee_repr = ReprRaw then
               enumerate_reprs
@@ -2738,8 +2741,8 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
       } in
     let c_compilation_type = get_compilation_type env sigma context_encoders test_input_encoder c_type c_repr in
     let c_compilation_test = EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c"))), c_compilation |> compilation_to_array) in
-    Feedback.msg_info Pp.(str "create_compilation" ++ spc () ++ Printer.pr_econstr_env env sigma c ++ spc () ++ str "∋" ++ spc () ++ str "(" ++ v 0 (Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_repr) ++ str "," ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_test) ++ str ")");
-    (* Typing.type_of env sigma c_compilation_test |> ignore; *)
+    (* debug_vcpu Pp.(fun () -> str "create_compilation" ++ spc () ++ Printer.pr_econstr_env env sigma c ++ spc () ++ str "∋" ++ spc () ++ str "(" ++ v 0 (Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_repr) ++ str "," ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_test) ++ str ")"); *)
+    Typing.type_of env sigma c_compilation_test |> ignore;
     (
       if c_reprs_c_compilations |> List.filter_map Fun.id |> List.mem_assoc c_repr then
         None
@@ -2755,9 +2758,8 @@ let entry_derive_compilation (input_c_constr_expr : Constrexpr.constr_expr) (inp
   let (sigma, input_c) = Constrintern.interp_constr_evars env sigma input_c_constr_expr in
   let input_repr = repr_of_constr_expr env sigma input_repr_constr_expr in
   (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
-    Feedback.msg_info Pp.(str "repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr r))
+    debug_vcpu Pp.(fun () -> str "repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr r))
   ); *)
-  (* CErrors.user_err Pp.(str "Representation:" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_repr)); *)
   let test_input_len = to_nat_constr env 3 in
   let test_input_encoder =
     {
@@ -2765,37 +2767,25 @@ let entry_derive_compilation (input_c_constr_expr : Constrexpr.constr_expr) (inp
       encoder_encode = mk_vector_repeat env (mk_bool_type env) (to_bool_constr env false) test_input_len;
     } in
   create_compilations env sigma [] [] [] test_input_encoder input_c |> Seq.iter (fun (input_c_repr, input_c_compilation) ->
-    Feedback.msg_info Pp.(str "input_c_repr" ++ (if input_c_repr = input_repr then str "!" else str "?") ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_c_repr));
+    debug_vcpu Pp.(fun () -> str "input_c_repr" ++ (if input_c_repr = input_repr then str "!" else str "?") ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_c_repr));
     let input_c_compilation_type = get_compilation_type env sigma [] test_input_encoder (Retyping.get_type_of env sigma input_c) input_c_repr in
     let input_c_compilation_test = EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "input_c"))), input_c_compilation |> compilation_to_array) in
-    Feedback.msg_info Pp.(str "input_c_compilation_test" ++ spc () ++ Printer.pr_econstr_env env sigma input_c_compilation_test);
+    debug_vcpu Pp.(fun () -> str "input_c_compilation_test" ++ spc () ++ Printer.pr_econstr_env env sigma input_c_compilation_test);
     Typing.type_of env sigma input_c_compilation_test |> ignore;
     ()
   );
   (* let input_compilation_type = get_compilation_type env sigma [] test_input_encoder (Retyping.get_type_of env sigma input_c) input_repr in
   let aaa = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "input_c"))) in
-  Feedback.msg_info Pp.(str "aaa" ++ spc () ++ Printer.pr_econstr_env env sigma aaa);
+  debug_vcpu Pp.(fun () -> str "aaa" ++ spc () ++ Printer.pr_econstr_env env sigma aaa);
   Typing.type_of env sigma aaa |> ignore; *)
   (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
     let input_compilation_type_r = get_compilation_type env sigma [] (to_nat_constr env 456) (Retyping.get_type_of env sigma input_c) r in
     let bbb = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type_r |> compilation_type_to_context EConstr.anonR) in
-    Feedback.msg_info Pp.(str "bbb" ++ spc () ++ Printer.pr_econstr_env env sigma bbb);
+    debug_vcpu Pp.(fun () -> str "bbb" ++ spc () ++ Printer.pr_econstr_env env sigma bbb);
     Typing.type_of env sigma bbb |> ignore;
     ()
   ); *)
   ()
 
 let entry_test () : unit =
-  let env = Global.env () in
-  let (mib, mip) = Inductive.lookup_mind_specif env (Names.MutInd.make1 (Names.KerName.make (Names.ModPath.MPfile (Names.DirPath.make [Names.Id.of_string "Datatypes"; Names.Id.of_string "Init"; Names.Id.of_string "Corelib"])) (Names.Label.make "list")), 0) in
-  let truly_recursive =
-    let is_rec ra = match Declareops.dest_recarg ra with Mrec _ -> true | Norec -> false in
-    Array.exists
-      (fun (mip : Declarations.one_inductive_body) -> Array.exists (List.exists is_rec) (Declareops.dest_subterms mip.mind_recargs))
-      mib.mind_packets in
-  Feedback.msg_info (Pp.bool (mib.mind_finite = BiFinite));
-  Feedback.msg_info (Pp.bool truly_recursive);
   Feedback.msg_info (Pp.str "test")
-
-let entry_compile (input_id : Names.Id.t) : unit =
-  Feedback.msg_info (Pp.str "compile")
