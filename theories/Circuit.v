@@ -144,6 +144,22 @@ Lemma circuit_eval_circuit_comp {n m k} :
 Proof.
 Admitted.
 
+Lemma circuit_eval_circuit_comp_relative {n m k} :
+  ∀ (c_2 : circuit m k) (c_1 : circuit n m),
+  circuit_wf c_2 →
+  circuit_wf c_1 →
+  ∀ inputs u v,
+  circuit_eval c_2 u = v →
+  circuit_eval c_1 inputs = u →
+  circuit_eval (circuit_comp c_2 c_1) inputs = v.
+Proof.
+  intros c_2 c_1 wf_c_2 wf_c_1 inputs u v H_c_2 H_c_1. rewrite circuit_eval_circuit_comp by auto. congruence.
+Qed.
+
+Register circuit_comp as vcpu.circuit.comp.
+Register circuit_wf_circuit_comp as vcpu.circuit.wf_comp.
+Register circuit_eval_circuit_comp_relative as vcpu.circuit.eval_comp_relative.
+
 Definition wire_lift n m (w : wire) : wire :=
   wire_map (λ i, if i <? n then i else i + m) w.
 
@@ -268,6 +284,10 @@ Proof.
   intros n m inputs_1 inputs_2. rewrite circuit_eval_circuit_prefix, vector_prefix_vector_app. reflexivity.
 Qed.
 
+Register circuit_prefix as vcpu.circuit.prefix.
+Register circuit_wf_circuit_prefix as vcpu.circuit.wf_prefix.
+Register circuit_eval_circuit_prefix_relative as vcpu.circuit.eval_prefix_relative.
+
 Definition circuit_comp_prefix {n} m k (c : circuit n (m + k)) : circuit n m :=
   circuit_comp (circuit_prefix m k) c.
 
@@ -330,6 +350,10 @@ Lemma circuit_eval_circuit_suffix_relative :
 Proof.
   intros n m inputs_1 inputs_2. rewrite circuit_eval_circuit_suffix, vector_suffix_vector_app. reflexivity.
 Qed.
+
+Register circuit_suffix as vcpu.circuit.suffix.
+Register circuit_wf_circuit_suffix as vcpu.circuit.wf_suffix.
+Register circuit_eval_circuit_suffix_relative as vcpu.circuit.eval_suffix_relative.
 
 Definition circuit_comp_suffix {n} m k (c : circuit n (m + k)) : circuit n k :=
   circuit_comp (circuit_suffix m k) c.

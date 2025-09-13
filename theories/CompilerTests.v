@@ -18,7 +18,7 @@ About list.
 (* Test. *)
 
 (* Set Printing All. *)
-Set Printing Implicit.
+(* Set Printing Implicit. *)
 
 Print prod.
 
@@ -106,4 +106,5 @@ Vcpu Derive Encoder for many_things as many_things.
 (* Vcpu Derive Compilation for andb with (F T (F T T)). *)
 (* Vcpu Derive Compilation for exchange with (F T (F T (F T T))). *)
 (* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
-Vcpu Derive Compilation for many_things_transform with (F T T).
+(* Vcpu Derive Compilation for many_things_transform with (F T T). *)
+Vcpu Derive Compilation for (λ b : bool, let b' := negb b in (b', xorb b' b)) with (F T T).
