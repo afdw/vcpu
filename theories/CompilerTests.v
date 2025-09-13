@@ -91,6 +91,12 @@ Definition many_things_transform (mt : many_things) : many_things :=
 
 Vcpu Derive Encoder for many_things as many_things.
 
+Fixpoint flip (b : bool) n :=
+  match n with
+  | 0 => b
+  | S n' => negb (flip b n')
+  end.
+
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
 (* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
@@ -107,4 +113,5 @@ Vcpu Derive Encoder for many_things as many_things.
 (* Vcpu Derive Compilation for exchange with (F T (F T (F T T))). *)
 (* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
 (* Vcpu Derive Compilation for many_things_transform with (F T T). *)
-Vcpu Derive Compilation for (λ b : bool, let b' := negb b in (b', xorb b' b)) with (F T T).
+(* Vcpu Derive Compilation for (λ b : bool, let b' := negb b in (b', xorb b' b)) with (F T T). *)
+Vcpu Derive Compilation for flip with (F T (F R T)).
