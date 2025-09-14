@@ -104,8 +104,8 @@ Fixpoint flip_s (b : bool) n (s : bool) :=
   | S n' => xorb s (flip_s b n' s)
   end.
 
-(* Vcpu Derive Compilation for identity with (F T (F R T)). *)
-(* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
+(* Vcpu Derive Compilation for identity with (F T (F R T)) as identity. *)
+(* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))) as option_map. *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
 (* Vcpu Derive Compilation for @pair with (F T (F T (F T (F T T)))). *)
 (* Vcpu Derive Compilation for (@inl bool) with (F T (F T T)). *)
@@ -115,11 +115,19 @@ Fixpoint flip_s (b : bool) n (s : bool) :=
 (* Vcpu Derive Compilation for (λ b : bool, if b then false else true) with (F T T). *)
 (* Vcpu Derive Compilation for @fst with (F T (F T (F T T))). *)
 (* Vcpu Derive Compilation for @snd with (F T (F T (F T T))). *)
+Vcpu Derive Compilation for negb with (F T T) as negb.
 (* Vcpu Derive Compilation for xorb with (F T (F T T)). *)
 (* Vcpu Derive Compilation for andb with (F T (F T T)). *)
-(* Vcpu Derive Compilation for exchange with (F T (F T (F T T))). *)
+(* Vcpu Derive Compilation for exchange with (F T (F T (F T T))) as exchange. *)
 (* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
-(* Vcpu Derive Compilation for many_things_transform with (F T T). *)
+(* Vcpu Derive Compilation for many_things_transform with (F T T) as many_things_transform. *)
 (* Vcpu Derive Compilation for (λ b : bool, let b' := negb b in (b', xorb b' b)) with (F T T). *)
-(* Vcpu Derive Compilation for flip with (F T (F R T)). *)
-Vcpu Derive Compilation for flip_s with (F T (F R (F T T))).
+Vcpu Derive Compilation for flip with (F T (F R T)) as flip.
+(* Vcpu Derive Compilation for flip_s with (F T (F R (F T T))) as flip_s. *)
+
+Print negb_orig.
+Print negb_circuit.
+Print negb_wf_circuit.
+Print negb_eval_circuit.
+
+Print flip_circuit.

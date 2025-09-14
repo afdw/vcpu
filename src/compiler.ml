@@ -359,12 +359,12 @@ let encoder_lift (n : int) (encoder : encoder) : encoder =
     encoder_encode = encoder.encoder_encode |> EConstr.Vars.lift n;
   }
 
-let saved_encoders : (Names.Ind.t * encoder) list ref = Summary.ref ~name:"vcpu_saved_encoders" []
+let saved_encoders : (EConstr.t * encoder) list ref = Summary.ref ~name:"vcpu_saved_encoders" []
 
-let cache_saved_encoder ((ind, ind_encoder) : (Names.Ind.t * encoder)) : unit =
-  saved_encoders := (ind, ind_encoder) :: !saved_encoders
+let cache_saved_encoder ((type_, type_encoder) : (EConstr.t * encoder)) : unit =
+  saved_encoders := (type_, type_encoder) :: !saved_encoders
 
-let in_saved_encoders : (Names.Ind.t * encoder) -> Libobject.obj =
+let in_saved_encoders : (EConstr.t * encoder) -> Libobject.obj =
   Libobject.declare_object {
     (Libobject.default_object "vcpu_saved_encoders") with
     load_function = (fun _ -> cache_saved_encoder);
@@ -372,74 +372,74 @@ let in_saved_encoders : (Names.Ind.t * encoder) -> Libobject.obj =
     classify_function = (fun _ -> Keep);
   }
 
-let add_saved_encoder ((ind, ind_encoder) : (Names.Ind.t * encoder)) : unit =
-  Lib.add_leaf (in_saved_encoders (ind, ind_encoder))
+let add_saved_encoder ((type_, type_encoder) : (EConstr.t * encoder)) : unit =
+  Lib.add_leaf (in_saved_encoders (type_, type_encoder))
 
 let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (type_ : EConstr.t) : encoder option =
   let exception Static in
   debug_vcpu Pp.(fun () -> str "create_encoder" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_head, type_args = EConstr.decompose_app sigma type_ in
-  match EConstr.kind sigma type_head, type_args with
-  | Rel n, type_args -> (
-    List.nth context_encoders (n - 1) |> Option.map (fun context_encoder ->
-      {
-        encoder_len = EConstr.mkApp (context_encoder.encoder_len, type_args);
-        encoder_encode = EConstr.mkApp (context_encoder.encoder_encode, type_args);
-      }
+  let type_encoder_existing =
+    try
+      match !saved_encoders |> List.find_opt (fun (type', _) -> EConstr.eq_constr sigma type' type_) |> Option.map snd with
+      | Some type_encoder ->
+        let type_args_encoders =
+          type_args
+            |> Array.map (create_encoder env sigma context_encoders)
+            |> Array.map (fun encoder ->
+              match encoder with
+              | Some encoder -> encoder
+              | None -> raise Static
+            ) in
+        let ind_encoder_args =
+          Array.map2 (fun param param_encoder ->
+            [param; param_encoder.encoder_len; param_encoder.encoder_encode]
+          ) type_args type_args_encoders |> Array.to_list |> List.flatten |> Array.of_list in
+        Some {
+          encoder_len = EConstr.mkApp (type_encoder.encoder_len, ind_encoder_args);
+          encoder_encode = EConstr.mkApp (type_encoder.encoder_encode, ind_encoder_args);
+        }
+      | None -> None
+    with Static -> None in
+  match type_encoder_existing with
+  | Some type_encoder_existing -> Some type_encoder_existing
+  | None ->
+    match EConstr.kind sigma type_head, type_args with
+    | Rel n, type_args -> (
+      List.nth context_encoders (n - 1) |> Option.map (fun context_encoder ->
+        {
+          encoder_len = EConstr.mkApp (context_encoder.encoder_len, type_args);
+          encoder_encode = EConstr.mkApp (context_encoder.encoder_encode, type_args);
+        }
+      )
     )
-  )
-  | Sort _, [||] -> None
-  | Prod _, [||] -> None
-  | Ind (ind, u), type_args ->
-    let (mib, mip) = Inductive.lookup_mind_specif env ind in
-    (match mip.mind_sort with
-    | SProp | Prop -> None
-    | QSort _ -> assert false
-    | Set | Type _ ->
-      if
-        (mib.mind_record = NotRecord || mib.mind_record = FakeRecord) &&
-        (mib.mind_finite = Finite || mib.mind_finite = BiFinite) &&
-        mib.mind_ntypes = 1 &&
-        mib.mind_hyps = [] &&
-        mib.mind_nparams_rec = mib.mind_nparams &&
-        List.length mib.mind_params_ctxt = mib.mind_nparams &&
-        Array.length mip.mind_nf_lc > 0 &&
-        mip.mind_nrealdecls = 0 &&
-        mip.mind_consnrealargs = mip.mind_consnrealdecls &&
-        Declareops.dest_subterms mip.mind_recargs |> Array.for_all (fun ras ->
-          ras |> List.for_all (fun ra ->
-            Declareops.dest_recarg ra = Norec
+    | Sort _, [||] -> None
+    | Prod _, [||] -> None
+    | Ind (ind, u), type_args ->
+      let (mib, mip) = Inductive.lookup_mind_specif env ind in
+      (match mip.mind_sort with
+      | SProp | Prop -> None
+      | QSort _ -> assert false
+      | Set | Type _ ->
+        if
+          (mib.mind_record = NotRecord || mib.mind_record = FakeRecord) &&
+          (mib.mind_finite = Finite || mib.mind_finite = BiFinite) &&
+          mib.mind_ntypes = 1 &&
+          mib.mind_hyps = [] &&
+          mib.mind_nparams_rec = mib.mind_nparams &&
+          List.length mib.mind_params_ctxt = mib.mind_nparams &&
+          Array.length mip.mind_nf_lc > 0 &&
+          mip.mind_nrealdecls = 0 &&
+          mip.mind_consnrealargs = mip.mind_consnrealdecls &&
+          Declareops.dest_subterms mip.mind_recargs |> Array.for_all (fun ras ->
+            ras |> List.for_all (fun ra ->
+              Declareops.dest_recarg ra = Norec
+            )
           )
-        )
-      then (
-        assert (Array.length type_args = mib.mind_nparams);
-        let params = type_args in
-        let type_encoder_existing =
-          try
-            match !saved_encoders |> List.find_opt (fun (ind', _) -> Names.Ind.UserOrd.equal ind' ind) |> Option.map snd with
-            | Some ind_encoder ->
-              let param_encoders =
-                params
-                  |> Array.map (create_encoder env sigma context_encoders)
-                  |> Array.map (fun encoder ->
-                    match encoder with
-                    | Some encoder -> encoder
-                    | None -> raise Static
-                  ) in
-              let ind_encoder_args =
-                Array.map2 (fun param param_encoder ->
-                  [param; param_encoder.encoder_len; param_encoder.encoder_encode]
-                ) params param_encoders |> Array.to_list |> List.flatten |> Array.of_list in
-              Some {
-                encoder_len = EConstr.mkApp (ind_encoder.encoder_len, ind_encoder_args);
-                encoder_encode = EConstr.mkApp (ind_encoder.encoder_encode, ind_encoder_args);
-              }
-            | None -> None
-          with Static -> None in
-        match type_encoder_existing with
-        | Some type_encoder_existing -> Some type_encoder_existing
-        | None ->
+        then (
+          assert (Array.length type_args = mib.mind_nparams);
+          let params = type_args in
           try
             let constructor_types_hyps_concl =
               mip.mind_nf_lc |> Array.map (fun (ctx, concl) ->
@@ -476,7 +476,7 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
                 |> reduce_right (fun len_1 len_2 ->
                   mk_nat_add env (to_nat_constr env 1) (mk_nat_add env len_1 len_2)
                 ) in
-            debug_vcpu Pp.(fun () -> str "type_len" ++ spc () ++ Printer.pr_econstr_env env sigma type_len);
+            (* debug_vcpu Pp.(fun () -> str "type_len" ++ spc () ++ Printer.pr_econstr_env env sigma type_len); *)
             let type_encode =
               EConstr.mkLambda (EConstr.anonR,
                 type_,
@@ -561,77 +561,77 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
                   )
                 )
               ) in
-            debug_vcpu Pp.(fun () -> str "type_encode" ++ spc () ++ Printer.pr_econstr_env env sigma type_encode);
-            debug_vcpu Pp.(fun () -> str "type_encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Typing.type_of env sigma type_encode |> snd));
+            (* debug_vcpu Pp.(fun () -> str "type_encode" ++ spc () ++ Printer.pr_econstr_env env sigma type_encode); *)
+            (* debug_vcpu Pp.(fun () -> str "type_encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Typing.type_of env sigma type_encode |> snd)); *)
             Some {
               encoder_len = type_len;
               encoder_encode = type_encode;
             }
           with Dependent | Static -> None
-      ) else
-        None)
-  | _ -> CErrors.user_err Pp.(str "Unexpected type:" ++ spc () ++ Printer.pr_econstr_env env sigma type_)
+        ) else
+          None)
+    | _ ->
+      CErrors.user_err Pp.(str "Unexpected type:" ++ spc () ++ Printer.pr_econstr_env env sigma type_)
 
-let entry_derive_encoder (input_type_constr_expr : Constrexpr.constr_expr) (output_id : Names.Id.t option) : unit =
+let entry_derive_encoder (type_constr_expr : Constrexpr.constr_expr) (output_id : Names.Id.t option) : unit =
   let env = Global.env () in
   let sigma = Evd.from_env env in
-  let (sigma, input_type) = Constrintern.interp_constr_evars env sigma input_type_constr_expr in
-  let input_type_type = Retyping.get_type_of env sigma input_type in
-  let (input_type_type_hyps, input_type_type_concl) =
-    try decompose_arrows sigma input_type_type
-    with Dependent -> CErrors.user_err Pp.(str "Dependent type:" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_type) in
-  if not (input_type_type_hyps |> List.for_all (EConstr.isSort sigma)) then
-    CErrors.user_err Pp.(str "Has non-type arguments:" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_type);
-  if not (input_type_type_concl |> EConstr.isSort sigma) then
-    CErrors.user_err Pp.(str "Not an arity:" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_type);
-  let context =
-    List.fold_left (fun context input_type_type_hyp ->
+  let (sigma, type_) = Constrintern.interp_constr_evars env sigma type_constr_expr in
+  let type_type = Retyping.get_type_of env sigma type_ in
+  let (type_type_hyps, type_type_concl) =
+    try decompose_arrows sigma type_type
+    with Dependent -> CErrors.user_err Pp.(str "Dependent type:" ++ spc () ++ Printer.pr_econstr_env env sigma type_type) in
+  if not (type_type_hyps |> List.for_all (EConstr.isSort sigma)) then
+    CErrors.user_err Pp.(str "Has non-type arguments:" ++ spc () ++ Printer.pr_econstr_env env sigma type_type);
+  if not (type_type_concl |> EConstr.isSort sigma) then
+    CErrors.user_err Pp.(str "Not an arity:" ++ spc () ++ Printer.pr_econstr_env env sigma type_type);
+  let ctx =
+    List.fold_left (fun ctx input_type_type_hyp ->
       Context.Rel.Declaration.LocalAssum (
         EConstr.anonR,
         EConstr.mkProd (EConstr.anonR, EConstr.mkRel 2, mk_vector_type env (mk_bool_type env) (EConstr.mkRel 2))
       ) ::
       Context.Rel.Declaration.LocalAssum (EConstr.anonR, mk_nat_type env) ::
       Context.Rel.Declaration.LocalAssum (EConstr.anonR, input_type_type_hyp) ::
-      (EConstr.Vars.lift_rel_context 3 context)
-    ) [] input_type_type_hyps in
-  let context_encoders =
+      (EConstr.Vars.lift_rel_context 3 ctx)
+    ) [] type_type_hyps in
+  let ctx_encoders =
     List.fold_left (fun encoders input_type_type_hyp ->
       None ::
       None ::
       Some {encoder_len = EConstr.mkRel 2; encoder_encode = EConstr.mkRel 1} ::
       (encoders |> List.map (Option.map (encoder_lift 3)))
-    ) [] input_type_type_hyps in
-  let app_input_type =
+    ) [] type_type_hyps in
+  let app_type =
     EConstr.mkApp (
-      input_type,
-      input_type_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (3 + i * 3)) |> List.rev |> Array.of_list
+      type_,
+      type_type_hyps |> List.mapi (fun i _ -> EConstr.mkRel (3 + i * 3)) |> List.rev |> Array.of_list
     ) in
-  let app_input_type_encoder = create_encoder (env |> EConstr.push_rel_context context) sigma context_encoders app_input_type in
-  match app_input_type_encoder with
+  let app_type_encoder = create_encoder (env |> EConstr.push_rel_context ctx) sigma ctx_encoders app_type in
+  match app_type_encoder with
   | Some app_input_type_encoder -> (
-    let input_type_encoder = {
-      encoder_len = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_len context;
-      encoder_encode = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_encode context;
+    let type_encoder = {
+      encoder_len = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_len ctx;
+      encoder_encode = EConstr.it_mkLambda_or_LetIn app_input_type_encoder.encoder_encode ctx;
     } in
-    debug_vcpu Pp.(fun () -> str "len =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_len);
-    debug_vcpu Pp.(fun () -> str "encode =" ++ spc () ++ Printer.pr_econstr_env env sigma input_type_encoder.encoder_encode);
-    debug_vcpu Pp.(fun () -> str "encode :" ++ spc () ++ Printer.pr_econstr_env env sigma (Retyping.get_type_of env sigma input_type_encoder.encoder_encode));
     match output_id with
-    | Some output_id -> (
-      let input_type_len_constant =
+    | Some output_id ->
+      let type_len_constant =
         Declare.declare_definition
           ~info:(Declare.Info.make ())
           ~cinfo:(
             Declare.CInfo.make
             ~name:((output_id |> Names.Id.to_string) ^ "_len" |> Names.Id.of_string)
-            ~typ:(Some (EConstr.it_mkProd_or_LetIn (mk_nat_type env) context))
+            ~typ:(Some (
+              EConstr.it_mkProd_or_LetIn (mk_nat_type env) ctx)
+            )
             ()
           )
           ~opaque:false
-          ~body:input_type_encoder.encoder_len
+          ~body:type_encoder.encoder_len
           sigma
         |> dest_const_ref in
-      let input_type_encode_constant =
+      let type_encode_constant =
         Declare.declare_definition
           ~info:(Declare.Info.make ())
           ~cinfo:(
@@ -640,37 +640,37 @@ let entry_derive_encoder (input_type_constr_expr : Constrexpr.constr_expr) (outp
             ~typ:(Some (
               EConstr.it_mkProd_or_LetIn
                 (EConstr.mkProd (EConstr.anonR,
-                  app_input_type,
+                  app_type,
                   mk_vector_type env
                     (mk_bool_type env)
                     (EConstr.mkApp (
-                      EConstr.UnsafeMonomorphic.mkConst input_type_len_constant,
-                      List.init (List.length context) (fun i -> EConstr.mkRel (2 + i)) |> List.rev |> Array.of_list
+                      EConstr.UnsafeMonomorphic.mkConst type_len_constant,
+                      List.init (List.length ctx) (fun i -> EConstr.mkRel (2 + i)) |> List.rev |> Array.of_list
                     ))
                 ))
-                context
+                ctx
             ))
             ()
           )
           ~opaque:false
-          ~body:input_type_encoder.encoder_encode
+          ~body:type_encoder.encoder_encode
           sigma
         |> dest_const_ref in
-      match EConstr.kind sigma input_type with
-      | Ind (ind, _) ->
-        let ind_encoder = {
-          encoder_len = EConstr.UnsafeMonomorphic.mkConst (input_type_len_constant);
-          encoder_encode = EConstr.UnsafeMonomorphic.mkConst (input_type_encode_constant);
-        } in
-        add_saved_encoder (ind, ind_encoder);
-        ()
-      | _ -> ()
-    )
-    | None -> ()
+      add_saved_encoder (
+        type_,
+        {
+          encoder_len = EConstr.UnsafeMonomorphic.mkConst type_len_constant;
+          encoder_encode = EConstr.UnsafeMonomorphic.mkConst type_encode_constant;
+        }
+      );
+      ()
+    | None ->
+      Feedback.msg_info Pp.(str "len =" ++ spc () ++ Printer.pr_econstr_env env sigma type_encoder.encoder_len);
+      Feedback.msg_info Pp.(str "encode =" ++ spc () ++ Printer.pr_econstr_env env sigma type_encoder.encoder_encode);
+      ()
   )
   | None ->
-    Feedback.msg_info Pp.(str "Type is static");
-    ()
+    CErrors.user_err Pp.(str "Type is static")
 
 type repr =
   | ReprRaw
@@ -1749,6 +1749,22 @@ let mk_compilation_comp_select_2 (env : Environ.env) (sigma : Evd.evar_map) (n :
         )
     )
 
+let saved_compilations : (EConstr.t * repr * compilation) list ref = Summary.ref ~name:"vcpu_saved_compilations" []
+
+let cache_saved_compilation ((c, c_repr, c_compilation) : (EConstr.t * repr * compilation)) : unit =
+  saved_compilations := (c, c_repr, c_compilation) :: !saved_compilations
+
+let in_saved_compilations : (EConstr.t * repr * compilation) -> Libobject.obj =
+  Libobject.declare_object {
+    (Libobject.default_object "vcpu_saved_compilations") with
+    load_function = (fun _ -> cache_saved_compilation);
+    cache_function = cache_saved_compilation;
+    classify_function = (fun _ -> Keep);
+  }
+
+let add_saved_compilation ((c, c_repr, c_compilation) : (EConstr.t * repr * compilation)) : unit =
+  Lib.add_leaf (in_saved_compilations (c, c_repr, c_compilation))
+
 let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (context_reprs : repr list) (context_compilations : compilation option list) (input_encoder : encoder) (c : EConstr.t) : (repr * compilation) Seq.t =
   debug_vcpu Pp.(fun () -> str "create_compilations" ++ spc () ++ Printer.pr_econstr_env env sigma c);
   let env_test =
@@ -1762,8 +1778,36 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
   let c_type = Retyping.get_type_of env sigma c in
   let c_type = Tacred.hnf_constr0 env sigma c_type in
   let (c_head, c_args) = c |> EConstr.decompose_app sigma in
-  Seq.append
-    (if
+  Seq.concat ([
+    !saved_compilations
+      |> List.filter_map (fun (c', c'_repr, c'_compilation) ->
+        if EConstr.eq_constr sigma c' c then
+          Some (
+            c'_repr,
+            {
+              compilation_orig = c'_compilation.compilation_orig;
+              compilation_circuit =
+                EConstr.mkApp (
+                  c'_compilation.compilation_circuit,
+                  [|input_encoder.encoder_len; input_encoder.encoder_encode|]
+                );
+              compilation_wf_circuit =
+                EConstr.mkApp (
+                  c'_compilation.compilation_wf_circuit,
+                  [|input_encoder.encoder_len; input_encoder.encoder_encode|]
+                );
+              compilation_eval_circuit =
+                EConstr.mkApp (
+                  c'_compilation.compilation_eval_circuit,
+                  [|input_encoder.encoder_len; input_encoder.encoder_encode|]
+                );
+            }
+          )
+        else
+          None
+      )
+      |> List.to_seq;
+    if
       context_reprs |> CList.for_all_i (fun context_i context_repr ->
         c |> EConstr.Vars.noccurn sigma (1 + context_i) ||
         context_repr = ReprRaw
@@ -1795,8 +1839,8 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
             )
           | None -> Seq.empty
         )
-    else Seq.empty)
-    (match EConstr.kind sigma c with
+    else Seq.empty;
+    match EConstr.kind sigma c with
     | Rel n -> (
       match List.nth context_compilations (n - 1) with
       | Some context_compilation -> Seq.return (List.nth context_reprs (n - 1), context_compilation)
@@ -2494,7 +2538,7 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                               |> econstr_substl_opt sigma [
                                 None;
                                 Some (EConstr.mkRel 1);
-                                Some c_compilation_circuit;
+                                Some (c_compilation_circuit |> EConstr.Vars.lift 1);
                                 None;
                               ]);
                         |]
@@ -2539,9 +2583,9 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                               |> EConstr.Vars.liftn 1 5
                               |> econstr_substl_opt sigma [
                                 Some (EConstr.mkRel 1);
-                                Some c_compilation_wf_circuit;
-                                Some c_compilation_circuit;
-                                Some c_compilation_orig;
+                                Some (c_compilation_wf_circuit |> EConstr.Vars.lift 1);
+                                Some (c_compilation_circuit |> EConstr.Vars.lift 1);
+                                Some (c_compilation_orig |> EConstr.Vars.lift 1);
                               ]);
                         |]
                       )
@@ -3294,7 +3338,8 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
         Seq.empty)
     | _ ->
       Feedback.msg_warning Pp.(str "Unexpected term:" ++ spc () ++ Printer.pr_econstr_env env sigma c);
-      Seq.empty)
+      Seq.empty
+  ] |> List.to_seq)
   |> Seq.scan (fun c_reprs_c_compilations (c_repr, c_compilation) ->
     let c_compilation_type = get_compilation_type env sigma context_encoders input_encoder c_type c_repr in
     let c_compilation_test = EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c"))), c_compilation |> compilation_to_array) in
@@ -3311,40 +3356,172 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
   ) [None]
   |> Seq.filter_map List.hd
 
-let entry_derive_compilation (input_c_constr_expr : Constrexpr.constr_expr) (input_repr_constr_expr : Constrexpr.constr_expr) : unit =
+let entry_derive_compilation (c_constr_expr : Constrexpr.constr_expr) (wanted_repr_constr_expr : Constrexpr.constr_expr option) (output_id : Names.Id.t option) : unit =
   let env = Global.env () in
   let sigma = Evd.from_env env in
-  let (sigma, input_c) = Constrintern.interp_constr_evars env sigma input_c_constr_expr in
-  let input_repr = repr_of_constr_expr env sigma input_repr_constr_expr in
-  (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
-    debug_vcpu Pp.(fun () -> str "repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr r))
-  ); *)
-  let test_input_len = to_nat_constr env 3 in
-  let test_input_encoder =
+  let (sigma, c) = Constrintern.interp_constr_evars env sigma c_constr_expr in
+  let wanted_repr = wanted_repr_constr_expr |> Option.map (repr_of_constr_expr env sigma) in
+  let c_type = Retyping.get_type_of env sigma c in
+  let input_ctx =
+    [
+      Context.Rel.Declaration.LocalAssum (EConstr.nameR (Names.Id.of_string "input_encode"),
+        mk_vector_type env (mk_bool_type env) (EConstr.mkRel 1)
+      );
+      Context.Rel.Declaration.LocalAssum (EConstr.nameR (Names.Id.of_string "input_len"),
+        mk_nat_type env
+      );
+    ] in
+  let input_encoder =
     {
-      encoder_len = test_input_len;
-      encoder_encode = mk_vector_repeat env (mk_bool_type env) (to_bool_constr env false) test_input_len;
+      encoder_len = EConstr.mkRel 2;
+      encoder_encode = EConstr.mkRel 1;
     } in
-  create_compilations env sigma [] [] [] test_input_encoder input_c |> Seq.iter (fun (input_c_repr, input_c_compilation) ->
-    debug_vcpu Pp.(fun () -> str "input_c_repr" ++ (if input_c_repr = input_repr then str "!" else str "?") ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr input_c_repr));
-    let input_c_compilation_type = get_compilation_type env sigma [] test_input_encoder (Retyping.get_type_of env sigma input_c) input_c_repr in
-    let input_c_compilation_test = EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "input_c"))), input_c_compilation |> compilation_to_array) in
-    debug_vcpu Pp.(fun () -> str "input_c_compilation_test" ++ spc () ++ Printer.pr_econstr_env env sigma input_c_compilation_test);
-    Typing.type_of env sigma input_c_compilation_test |> ignore;
+  let l =
+    create_compilations (env |> EConstr.push_rel_context input_ctx) sigma [] [] [] input_encoder (c |> EConstr.Vars.lift 2)
+      |> Seq.filter (fun (c_repr, _) -> wanted_repr = None || wanted_repr = Some c_repr)
+      |> Seq.map (fun (c_repr, c_compilation) ->
+        let c_compilation_type =
+          get_compilation_type (env |> EConstr.push_rel_context input_ctx) sigma [] input_encoder (c_type |> EConstr.Vars.lift 2) c_repr in
+        let c_compilation_test =
+          EConstr.mkApp (
+            EConstr.it_mkLambda_or_LetIn
+              EConstr.mkSProp
+              (c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c"))),
+            c_compilation |> compilation_to_array
+          ) in
+        Typing.type_of (env |> EConstr.push_rel_context input_ctx) sigma c_compilation_test |> ignore;
+        if output_id = None then (
+          Feedback.msg_info Pp.(str "c_repr =" ++ spc () ++ Ppconstr.pr_constr_expr (env |> EConstr.push_rel_context input_ctx) sigma (repr_to_constr_expr c_repr));
+          Feedback.msg_info Pp.(str "c_compilation_test =" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context input_ctx) sigma c_compilation_test);
+        );
+        c_compilation_type, c_repr, c_compilation
+      )
+      |> List.of_seq in
+  match output_id, l with
+  | Some output_id, (c_compilation_type, c_repr, c_compilation) :: _ ->
+    let c_orig_constant =
+      Declare.declare_definition
+        ~info:(Declare.Info.make ())
+        ~cinfo:(
+          Declare.CInfo.make
+          ~name:((output_id |> Names.Id.to_string) ^ "_orig" |> Names.Id.of_string)
+          ~typ:None
+          ()
+        )
+        ~opaque:false
+        ~body:(
+          c_compilation.compilation_orig
+            |> econstr_substl_opt sigma [
+              None;
+              None;
+            ]
+        )
+        sigma
+      |> dest_const_ref in
+    let c_circuit_constant =
+      Declare.declare_definition
+        ~info:(Declare.Info.make ())
+        ~cinfo:(
+          Declare.CInfo.make
+          ~name:((output_id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
+          ~typ:(Some (
+            EConstr.it_mkProd_or_LetIn
+              (c_compilation_type.compilation_circuit
+                |> econstr_substl_opt sigma [
+                  None;
+                ])
+              input_ctx
+          ))
+          ()
+        )
+        ~opaque:false
+        ~body:(
+          EConstr.it_mkLambda_or_LetIn
+            c_compilation.compilation_circuit
+            input_ctx
+        )
+        sigma
+      |> dest_const_ref in
+    let c_wf_circuit_constant =
+      Declare.declare_definition
+        ~info:(Declare.Info.make ())
+        ~cinfo:(
+          Declare.CInfo.make
+          ~name:((output_id |> Names.Id.to_string) ^ "_wf_circuit" |> Names.Id.of_string)
+          ~typ:(Some (
+            EConstr.it_mkProd_or_LetIn
+              (c_compilation_type.compilation_wf_circuit
+                |> econstr_substl_opt sigma [
+                  Some (
+                    EConstr.mkApp (
+                      EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
+                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
+                    )
+                  );
+                  None;
+                ])
+              input_ctx
+          ))
+          ()
+        )
+        ~opaque:false
+        ~body:(
+          EConstr.it_mkLambda_or_LetIn
+            c_compilation.compilation_wf_circuit
+            input_ctx
+        )
+        sigma
+      |> dest_const_ref in
+    let c_eval_circuit_constant =
+      Declare.declare_definition
+        ~info:(Declare.Info.make ())
+        ~cinfo:(
+          Declare.CInfo.make
+          ~name:((output_id |> Names.Id.to_string) ^ "_eval_circuit" |> Names.Id.of_string)
+          ~typ:(Some (
+            EConstr.it_mkProd_or_LetIn
+              (c_compilation_type.compilation_eval_circuit
+                |> econstr_substl_opt sigma [
+                  Some (
+                    EConstr.mkApp (
+                      EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant,
+                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
+                    )
+                  );
+                  Some (
+                    EConstr.mkApp (
+                      EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
+                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
+                    )
+                  );
+                  Some (EConstr.UnsafeMonomorphic.mkConst c_orig_constant);
+                ])
+              input_ctx
+          ))
+          ()
+        )
+        ~opaque:false
+        ~body:(
+          EConstr.it_mkLambda_or_LetIn
+            c_compilation.compilation_eval_circuit
+            input_ctx
+        )
+        sigma
+      |> dest_const_ref in
+    add_saved_compilation (
+      c,
+      c_repr,
+      {
+        compilation_orig = EConstr.UnsafeMonomorphic.mkConst c_orig_constant;
+        compilation_circuit = EConstr.UnsafeMonomorphic.mkConst c_circuit_constant;
+        compilation_wf_circuit = EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant;
+        compilation_eval_circuit = EConstr.UnsafeMonomorphic.mkConst c_eval_circuit_constant;
+      }
+    );
     ()
-  );
-  (* let input_compilation_type = get_compilation_type env sigma [] test_input_encoder (Retyping.get_type_of env sigma input_c) input_repr in
-  let aaa = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "input_c"))) in
-  debug_vcpu Pp.(fun () -> str "aaa" ++ spc () ++ Printer.pr_econstr_env env sigma aaa);
-  Typing.type_of env sigma aaa |> ignore; *)
-  (* enumerate_reprs env sigma [] (Retyping.get_type_of env sigma input_c) |> List.iter (fun r ->
-    let input_compilation_type_r = get_compilation_type env sigma [] (to_nat_constr env 456) (Retyping.get_type_of env sigma input_c) r in
-    let bbb = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (input_compilation_type_r |> compilation_type_to_context EConstr.anonR) in
-    debug_vcpu Pp.(fun () -> str "bbb" ++ spc () ++ Printer.pr_econstr_env env sigma bbb);
-    Typing.type_of env sigma bbb |> ignore;
-    ()
-  ); *)
-  ()
+  | Some _, [] ->
+    CErrors.user_err Pp.(str "No compilation found")
+  | None, _ -> ()
 
 let entry_test () : unit =
   Feedback.msg_info (Pp.str "test")
