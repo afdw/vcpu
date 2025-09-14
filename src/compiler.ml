@@ -90,14 +90,89 @@ let dest_ind_ref (glob_ref : Names.GlobRef.t) : Names.Ind.t =
   | IndRef t -> t
   | _ -> assert false
 
-let mk_eq_type (env : Environ.env) (typ : EConstr.t) (x : EConstr.t) (y : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "core.eq.type", [|typ; x; y|])
+let rec transport_unfold (env : Environ.env) (sigma : Evd.evar_map) (type_ : EConstr.t) (rec_index : int) (c : EConstr.t) : EConstr.t =
+  if rec_index > 0 then
+    match type_ |> EConstr.kind sigma with
+    | Prod (type_annot, type_1, type_2) ->
+      EConstr.mkLambda (type_annot,
+        type_1,
+        transport_unfold
+          (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (type_annot, type_1)))
+          sigma
+          type_2
+          (rec_index - 1)
+          (EConstr.mkApp (
+            c |> EConstr.Vars.lift 1,
+            [|EConstr.mkRel 1|]
+          ))
+      )
+    | _ -> assert false
+  else
+    match type_ |> EConstr.kind sigma with
+    | Prod (type_annot, type_1, type_2) -> (
+      let type_1 = Tacred.hnf_constr0 env sigma type_1 in
+      let type_1_head, type_1_args = EConstr.decompose_app sigma type_1 in
+      match EConstr.kind sigma type_1_head, type_1_args with
+      | Ind (ind, u), type_args ->
+        let (mib, mip) = Inductive.lookup_mind_specif env ind in
+        assert (Array.length type_args = mib.mind_nparams);
+        assert (mip.mind_nrealdecls = 0);
+        let params = type_args in
+        let constructor_types_ctx_concl =
+          mip.mind_nf_lc |> Array.map (fun (ctx, concl) ->
+            EConstr.decompose_prod_decls sigma (
+              EConstr.Vars.substl
+                (List.rev (Array.to_list params))
+                (EConstr.of_constr (Term.it_mkProd_or_LetIn concl (ctx |> List.take (List.length ctx - mib.mind_nparams))))
+            )
+          ) in
+        EConstr.mkLambda (type_annot,
+          type_1,
+          EConstr.mkCase (
+            Inductiveops.make_case_info env ind Constr.RegularStyle,
+            u,
+            params |> Array.map (EConstr.Vars.lift 1),
+            (
+              (
+                [|EConstr.anonR|],
+                type_2
+                  |> EConstr.Vars.liftn 2 2
+                  |> EConstr.Vars.subst1 (EConstr.mkRel 1)
+              ),
+              EConstr.ERelevance.relevant
+            ),
+            Constr.NoInvert,
+            EConstr.mkRel 1,
+            constructor_types_ctx_concl |> Array.mapi (fun constructor_i (constructor_type_ctx, _) ->
+              (
+                constructor_type_ctx |> CArray.map_of_list (fun _ -> EConstr.anonR),
+                EConstr.mkApp (
+                  c |> EConstr.Vars.lift (List.length constructor_type_ctx + 1),
+                  [|
+                    EConstr.mkApp (
+                      EConstr.mkConstructU ((ind, constructor_i + 1), u),
+                      constructor_type_ctx
+                        |> List.mapi (fun i _ -> EConstr.mkRel (List.length constructor_type_ctx - i))
+                        |> Array.of_list
+                    );
+                  |]
+                )
+              )
+            )
+          )
+        )
+      | _ -> assert false
+    )
+    | _ -> assert false
 
-let mk_eq_refl (env : Environ.env) (typ : EConstr.t) (x : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "core.eq.refl", [|typ; x|])
+let mk_eq_type (env : Environ.env) (type_ : EConstr.t) (x : EConstr.t) (y : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "core.eq.type", [|type_; x; y|])
 
-let mk_eq_trans (env : Environ.env) (typ : EConstr.t) (x : EConstr.t) (y : EConstr.t) (z : EConstr.t) (h_x_y : EConstr.t) (h_y_z : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "core.eq.trans", [|typ; x; y; z; h_x_y; h_y_z|])
+let mk_eq_refl (env : Environ.env) (type_ : EConstr.t) (x : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "core.eq.refl", [|type_; x|])
+
+let mk_eq_trans (env : Environ.env) (type_ : EConstr.t) (x : EConstr.t) (y : EConstr.t) (z : EConstr.t) (h_x_y : EConstr.t) (h_y_z : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "core.eq.trans", [|type_; x; y; z; h_x_y; h_y_z|])
 
 let mk_True_type (env : Environ.env) : EConstr.t =
   get_ref env "core.True.type"
@@ -133,10 +208,10 @@ let rec to_nat_constr (env : Environ.env) (n : int) : EConstr.t =
 let mk_nat_add (env : Environ.env) (n : EConstr.t) (m : EConstr.t) : EConstr.t =
   EConstr.mkApp (get_ref env "num.nat.add", [|n; m|])
 
-let rec to_list_constr (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) : EConstr.t =
+let rec to_list_constr (env : Environ.env) (type_ : EConstr.t) (l : EConstr.t list) : EConstr.t =
   match l with
-  | [] -> EConstr.mkApp (get_ref env "core.list.nil", [|typ|])
-  | c :: l' -> EConstr.mkApp (get_ref env "core.list.cons", [|typ; c; to_list_constr env typ l'|])
+  | [] -> EConstr.mkApp (get_ref env "core.list.nil", [|type_|])
+  | c :: l' -> EConstr.mkApp (get_ref env "core.list.cons", [|type_; c; to_list_constr env type_ l'|])
 
 let rec of_list_constr (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t) : EConstr.t list =
   match EConstr.kind sigma c with
@@ -148,34 +223,34 @@ let rec of_list_constr (env : Environ.env) (sigma : Evd.evar_map) (c : EConstr.t
 let mk_vector_type (env : Environ.env) (element_typ : EConstr.t) (len : EConstr.t) : EConstr.t =
   EConstr.mkApp (get_ref env "vcpu.vector.type", [|element_typ; len|])
 
-let is_vector_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : bool =
-  match EConstr.kind sigma typ with
+let is_vector_type (env : Environ.env) (sigma : Evd.evar_map) (type_ : EConstr.t) : bool =
+  match EConstr.kind sigma type_ with
   | App (typ_head, [|_; _|]) when EConstr.eq_constr sigma typ_head (get_ref env "vcpu.vector.type") ->
     true
   | _ -> false
 
-let dest_vector_type (env : Environ.env) (sigma : Evd.evar_map) (typ : EConstr.t) : EConstr.t * EConstr.t =
-  match EConstr.kind sigma typ with
+let dest_vector_type (env : Environ.env) (sigma : Evd.evar_map) (type_ : EConstr.t) : EConstr.t * EConstr.t =
+  match EConstr.kind sigma type_ with
   | App (typ_head, [|element_typ; len|]) when EConstr.eq_constr sigma typ_head (get_ref env "vcpu.vector.type") ->
     (element_typ, len)
-  | _ -> CErrors.user_err Pp.(str "Not an application of vector:" ++ spc () ++ Printer.pr_econstr_env env sigma typ)
+  | _ -> CErrors.user_err Pp.(str "Not an application of vector:" ++ spc () ++ Printer.pr_econstr_env env sigma type_)
 
-let to_vector_constr (env : Environ.env) (typ : EConstr.t) (l : EConstr.t list) : EConstr.t =
+let to_vector_constr (env : Environ.env) (type_ : EConstr.t) (l : EConstr.t list) : EConstr.t =
   EConstr.mkApp (
     get_ref env "vcpu.vector.constructor",
     [|
-      typ;
+      type_;
       to_nat_constr env (l |> List.length);
-      to_list_constr env typ l;
+      to_list_constr env type_ l;
       mk_eq_refl env (mk_nat_type env) (to_nat_constr env (l |> List.length));
     |]
   )
 
-let mk_vector_repeat (env : Environ.env) (typ : EConstr.t) (x : EConstr.t) (n : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "vcpu.vector.repeat", [|typ; x; n|])
+let mk_vector_repeat (env : Environ.env) (type_ : EConstr.t) (x : EConstr.t) (n : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "vcpu.vector.repeat", [|type_; x; n|])
 
-let mk_vector_app (env : Environ.env) (typ : EConstr.t) (length_u : EConstr.t) (length_v : EConstr.t) (u : EConstr.t) (v : EConstr.t) : EConstr.t =
-  EConstr.mkApp (get_ref env "vcpu.vector.app", [|typ; length_u; length_v; u; v|])
+let mk_vector_app (env : Environ.env) (type_ : EConstr.t) (length_u : EConstr.t) (length_v : EConstr.t) (u : EConstr.t) (v : EConstr.t) : EConstr.t =
+  EConstr.mkApp (get_ref env "vcpu.vector.app", [|type_; length_u; length_v; u; v|])
 
 let mk_circuit_type (env : Environ.env) (n : EConstr.t) (m : EConstr.t) : EConstr.t =
   EConstr.mkApp (get_ref env "vcpu.circuit.type", [|n; m|])
@@ -403,8 +478,7 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
                 ) in
             debug_vcpu Pp.(fun () -> str "type_len" ++ spc () ++ Printer.pr_econstr_env env sigma type_len);
             let type_encode =
-              EConstr.mkLambda (
-                EConstr.anonR,
+              EConstr.mkLambda (EConstr.anonR,
                 type_,
                 EConstr.mkCase (
                   Inductiveops.make_case_info env ind Constr.RegularStyle,
@@ -651,11 +725,12 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
   | Rel _, _ | Ind _, _ -> (
     let type_encoder = create_encoder env sigma context_encoders type_ in
     match type_encoder with
-    | Some _ -> [ReprTransformed; ReprRaw]
+    | Some _ -> [ReprRaw; ReprTransformed]
     | None -> [ReprRaw]
   )
   | Prod (type_annot, type_1, type_2), [||] ->
     if type_1 |> EConstr.isSort sigma then
+      (* ReprRaw :: *)
       (enumerate_reprs
         (env |> EConstr.push_rel_context [
           Context.Rel.Declaration.LocalAssum (type_annot |> annot_add_suffix "_encode",
@@ -683,17 +758,11 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
       not (type_1 |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) &&
       type_2 |> EConstr.Vars.noccurn sigma 1
     then
+      (* ReprRaw :: *)
       enumerate_reprs env sigma context_encoders type_1
         |> List.map (fun type_1_repr ->
           enumerate_reprs env sigma context_encoders (type_2 |> econstr_substl_opt sigma [None])
-            |> List.filter_map (fun type_2_repr ->
-              let _, type_2_repr_concl = repr_decompose type_2_repr in
-              (* HACK: this excludes bad cases, but might be not general enough? *)
-              if type_1_repr <> ReprTransformed || type_2_repr_concl <> ReprRaw then
-                Some (ReprFunctional (type_1_repr, type_2_repr))
-              else
-                None
-            )
+            |> List.map (fun type_2_repr -> ReprFunctional (type_1_repr, type_2_repr))
         )
         |> List.flatten
     else
@@ -2283,13 +2352,13 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
           let c_1_as_context = EConstr.decompose_prod_decls sigma c_1 |> fst |> EConstr.Vars.smash_rel_context in
           let c_1_skip_context = CList.lastn c_rec_index c_1_as_context in
           let c_1_repr_hyps, c_1_repr_concl = repr_decompose c_1_repr in
-          match CList.chop c_rec_index c_1_repr_hyps with
-          | c_1_repr_skip_hyps, ReprRaw :: c_1_repr_rest_hyps ->
+          match CList.chop c_rec_index c_1_repr_hyps, c_1_repr_concl with
+          | (c_1_repr_skip_hyps, ReprRaw :: c_1_repr_rest_hyps), ReprTransformed ->
             let c_1_compilation_type =
               get_compilation_type env sigma context_encoders input_encoder c_1 c_1_repr in
             let c_1_ctx = c_1_compilation_type |> compilation_type_to_context c_annot in
-            debug_vcpu Pp.(fun () -> str "c_1_repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_1_repr));
-            debug_vcpu Pp.(fun () -> str "c_1_ctx" ++ spc () ++ Printer.pr_econstr_env env sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp c_1_ctx));
+            (* debug_vcpu Pp.(fun () -> str "c_1_repr" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_1_repr)); *)
+            (* debug_vcpu Pp.(fun () -> str "c_1_ctx" ++ spc () ++ Printer.pr_econstr_env env sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp c_1_ctx)); *)
             create_compilations
               (env |> EConstr.push_rel_context c_1_ctx)
               sigma
@@ -2322,7 +2391,7 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                 |> EConstr.Vars.subst1 (EConstr.mkRel 4))
               |> Seq.flat_map (fun (c_2_repr, c_2_compilation) ->
                 if c_2_repr = c_1_repr then (
-                  debug_vcpu Pp.(fun () -> str "c_2_compilation" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context c_1_ctx) sigma (EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (c_1_compilation_type |> compilation_lift (List.length c_1_ctx) |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c_2"))), c_2_compilation |> compilation_to_array)));
+                  (* debug_vcpu Pp.(fun () -> str "c_2_compilation" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context c_1_ctx) sigma (EConstr.mkApp (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (c_1_compilation_type |> compilation_lift (List.length c_1_ctx) |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c_2"))), c_2_compilation |> compilation_to_array))); *)
                   let skip_compilation_type =
                     get_compilation_type
                       (env |> EConstr.push_rel_context c_1_ctx)
@@ -2334,14 +2403,18 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                       (input_encoder |> encoder_lift (List.length c_1_ctx))
                       (EConstr.it_mkProd_or_LetIn (mk_unit_type env) c_1_skip_context)
                       (repr_compose c_1_repr_skip_hyps ReprRaw) in
-                  debug_vcpu Pp.(fun () -> str "skip_compilation_type" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context c_1_ctx) sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (skip_compilation_type |> compilation_type_to_context EConstr.anonR)));
-                  let skip_ctx_orig, _ = EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_orig in
-                  let skip_ctx_circuit, _ = EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_circuit in
-                  let skip_ctx_wf_circuit, _ = EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_wf_circuit in
-                  let skip_ctx_eval_circuit, _ = EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_eval_circuit in
+                  (* debug_vcpu Pp.(fun () -> str "skip_compilation_type" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context c_1_ctx) sigma (EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (skip_compilation_type |> compilation_type_to_context EConstr.anonR))); *)
+                  let skip_compilation_type_orig_ctx, _ =
+                    EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_orig in
+                  let skip_compilation_type_circuit_ctx, _ =
+                    EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_circuit in
+                  let skip_compilation_type_wf_circuit_ctx, _ =
+                    EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_wf_circuit in
+                  let skip_compilation_type_eval_circuit_ctx, _ =
+                    EConstr.decompose_prod_decls sigma skip_compilation_type.compilation_eval_circuit in
                   let c_compilation_orig =
                     EConstr.mkFix (
-                      ([|List.length skip_ctx_orig|], 0),
+                      ([|List.length skip_compilation_type_orig_ctx|], 0),
                       (
                         [|c_annot|],
                         [|
@@ -2360,10 +2433,10 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                         |]
                       )
                     ) in
-                  debug_vcpu Pp.(fun () -> str "c_compilation_orig" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_orig);
+                  (* debug_vcpu Pp.(fun () -> str "c_compilation_orig" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_orig); *)
                   let c_compilation_circuit =
                     EConstr.mkFix (
-                      ([|List.length skip_ctx_circuit|], 0),
+                      ([|List.length skip_compilation_type_circuit_ctx|], 0),
                       (
                         [|c_annot |> annot_add_suffix "_circuit"|],
                         [|
@@ -2384,10 +2457,10 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                         |]
                       )
                     ) in
-                  debug_vcpu Pp.(fun () -> str "c_compilation_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_circuit);
+                  (* debug_vcpu Pp.(fun () -> str "c_compilation_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_circuit); *)
                   let c_compilation_wf_circuit =
                     EConstr.mkFix (
-                      ([|List.length skip_ctx_wf_circuit|], 0),
+                      ([|List.length skip_compilation_type_wf_circuit_ctx|], 0),
                       (
                         [|c_annot |> annot_add_suffix "_wf_circuit"|],
                         [|
@@ -2398,21 +2471,39 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                             ];
                         |],
                         [|
-                          c_2_compilation.compilation_wf_circuit
-                            |> EConstr.Vars.liftn 1 5
-                            |> econstr_substl_opt sigma [
-                              None;
-                              Some (EConstr.mkRel 1);
-                              Some c_compilation_circuit;
-                              None;
-                            ];
+                          transport_unfold
+                            (env |> EConstr.push_rel (
+                              Context.Rel.Declaration.LocalAssum (c_annot,
+                                c_1_compilation_type.compilation_wf_circuit
+                                  |> econstr_substl_opt sigma [
+                                    Some (c_compilation_circuit);
+                                    None;
+                                  ]
+                              )
+                            ))
+                            sigma
+                            (c_1_compilation_type.compilation_wf_circuit
+                              |> econstr_substl_opt sigma [
+                                Some c_compilation_circuit;
+                                None;
+                              ]
+                              |> EConstr.Vars.lift 1)
+                            (List.length skip_compilation_type_wf_circuit_ctx)
+                            (c_2_compilation.compilation_wf_circuit
+                              |> EConstr.Vars.liftn 1 5
+                              |> econstr_substl_opt sigma [
+                                None;
+                                Some (EConstr.mkRel 1);
+                                Some c_compilation_circuit;
+                                None;
+                              ]);
                         |]
                       )
                     ) in
-                  debug_vcpu Pp.(fun () -> str "c_compilation_wf_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_wf_circuit);
+                  (* debug_vcpu Pp.(fun () -> str "c_compilation_wf_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_wf_circuit); *)
                   let c_compilation_eval_circuit =
                     EConstr.mkFix (
-                      ([|List.length skip_ctx_eval_circuit|], 0),
+                      ([|List.length skip_compilation_type_eval_circuit_ctx|], 0),
                       (
                         [|c_annot |> annot_add_suffix "_eval_circuit"|],
                         [|
@@ -2424,18 +2515,38 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                             ];
                         |],
                         [|
-                          c_2_compilation.compilation_eval_circuit
-                            |> EConstr.Vars.liftn 1 5
-                            |> econstr_substl_opt sigma [
-                              Some (EConstr.mkRel 1);
-                              Some c_compilation_wf_circuit;
-                              Some c_compilation_circuit;
-                              Some c_compilation_orig;
-                            ];
+                          transport_unfold
+                            (env |> EConstr.push_rel (
+                              Context.Rel.Declaration.LocalAssum (c_annot,
+                                c_1_compilation_type.compilation_eval_circuit
+                                  |> econstr_substl_opt sigma [
+                                    Some c_compilation_wf_circuit;
+                                    Some c_compilation_circuit;
+                                    Some c_compilation_orig;
+                                  ]
+                              )
+                            ))
+                            sigma
+                            (c_1_compilation_type.compilation_eval_circuit
+                              |> econstr_substl_opt sigma [
+                                Some c_compilation_wf_circuit;
+                                Some c_compilation_circuit;
+                                Some c_compilation_orig;
+                              ]
+                              |> EConstr.Vars.lift 1)
+                            (List.length skip_compilation_type_eval_circuit_ctx)
+                            (c_2_compilation.compilation_eval_circuit
+                              |> EConstr.Vars.liftn 1 5
+                              |> econstr_substl_opt sigma [
+                                Some (EConstr.mkRel 1);
+                                Some c_compilation_wf_circuit;
+                                Some c_compilation_circuit;
+                                Some c_compilation_orig;
+                              ]);
                         |]
                       )
                     ) in
-                  debug_vcpu Pp.(fun () -> str "c_compilation_eval_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_eval_circuit);
+                  (* debug_vcpu Pp.(fun () -> str "c_compilation_eval_circuit" ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_eval_circuit); *)
                   Seq.return (
                     c_1_repr,
                     {
@@ -2461,6 +2572,7 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
       create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_1 |> Seq.flat_map (fun (c_1_repr, c_1_compilation) ->
         match c_1_repr with
         | ReprFunctional (c_1_repr_1, c_1_repr_2) ->
+          let _, c_1_repr_2_concl = repr_decompose c_1_repr_2 in
           Seq.append
             (create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_2 |> Seq.flat_map (fun (c_2_repr, c_2_compilation) ->
               (* Feedback.msg_warning Pp.(str "GOT APP" ++ spc () ++ Printer.pr_econstr_env env sigma c_1 ++ spc () ++ str ":" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_1_repr) ++ spc () ++ Printer.pr_econstr_env env sigma c_2 ++ spc () ++ str ":" ++ spc () ++ Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_2_repr)); *)
@@ -2473,7 +2585,7 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                       c_1_compilation
                       [|c_2_compilation.compilation_orig|]
                   )
-                else if not (c_2_type |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) then
+                else if c_1_repr_2_concl <> ReprRaw && not (c_2_type |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) then
                   (* let () = Feedback.msg_warning Pp.(str "NON-RAW APP") in *)
                   Seq.return (
                     c_1_repr_2,

@@ -4,6 +4,7 @@ From Vcpu Require Import Circuit.
 From Vcpu Require Import Plugin.
 
 Set Printing Width 120.
+Set Printing Depth 10000.
 
 (* Eval hnf in (4 : nat). *)
 
@@ -97,6 +98,12 @@ Fixpoint flip (b : bool) n :=
   | S n' => negb (flip b n')
   end.
 
+Fixpoint flip_s (b : bool) n (s : bool) :=
+  match n with
+  | 0 => b
+  | S n' => xorb s (flip_s b n' s)
+  end.
+
 (* Vcpu Derive Compilation for identity with (F T (F R T)). *)
 (* Vcpu Derive Compilation for @option_map with (F T (F T (F (F T T) (F T T)))). *)
 (* Vcpu Derive Compilation for (λ A : Type, true) with (F T T). *)
@@ -114,4 +121,5 @@ Fixpoint flip (b : bool) n :=
 (* Vcpu Derive Compilation for (λ p : bool * bool, let (b_1, b_2) := p in b_1 && b_2) with (F T T). *)
 (* Vcpu Derive Compilation for many_things_transform with (F T T). *)
 (* Vcpu Derive Compilation for (λ b : bool, let b' := negb b in (b', xorb b' b)) with (F T T). *)
-Vcpu Derive Compilation for flip with (F T (F R T)).
+(* Vcpu Derive Compilation for flip with (F T (F R T)). *)
+Vcpu Derive Compilation for flip_s with (F T (F R (F T T))).
