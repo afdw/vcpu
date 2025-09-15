@@ -1,6 +1,7 @@
 *.lia.cache
 
 /_build
+/target
 /payload/rootfs/rootfs.ext2
 
 /old.txt

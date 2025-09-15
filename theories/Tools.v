@@ -175,6 +175,16 @@ Proof.
   destruct v_wf_l. apply UIP_refl_nat.
 Defined.
 
+#[program]
+Definition vector_cons {A n} (x : A) (u : vector A n) : vector A (S n) := {|
+  vector_l := x :: vector_l u;
+|}.
+Next Obligation.
+  intros A n x u. simpl. f_equal. apply vector_wf_l.
+Defined.
+
+Notation "x  :||:  u" := (vector_cons x u) (at level 60, right associativity) : vector_scope.
+
 Definition vector_repeat {A} (x : A) n : vector A n := {|
   vector_l := List.repeat x n;
   vector_wf_l := List.repeat_length _ _;

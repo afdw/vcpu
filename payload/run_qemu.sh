@@ -7,5 +7,5 @@ qemu-system-riscv64 \
     -machine virt \
     -nographic \
     -bios linux/arch/riscv/boot/Image \
-    -drive file=rootfs/rootfs.ext2,format=raw,id=hd0 \
+    -drive file=rootfs/rootfs.ext2,if=none,format=raw,id=hd0 \
     -device virtio-blk-device,drive=hd0

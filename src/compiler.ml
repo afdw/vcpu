@@ -1,6 +1,8 @@
 let debug_vcpu_flag, debug_vcpu = CDebug.create_full ~name:"vcpu" ()
 
-let () = CDebug.set_flag debug_vcpu_flag true
+let () = CDebug.set_flag debug_vcpu_flag false
+
+let typecheck = false
 
 let rec fold_right_trace : 'a 'acc. ('a -> 'acc -> 'acc) -> 'a list -> 'acc -> 'acc list = fun f l acc ->
   match l with
@@ -377,7 +379,7 @@ let add_saved_encoder ((type_, type_encoder) : (EConstr.t * encoder)) : unit =
 
 let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (type_ : EConstr.t) : encoder option =
   let exception Static in
-  debug_vcpu Pp.(fun () -> str "create_encoder" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
+  (* debug_vcpu Pp.(fun () -> str "create_encoder" ++ spc () ++ Printer.pr_econstr_env env sigma type_); *)
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_head, type_args = EConstr.decompose_app sigma type_ in
   let type_encoder_existing =
@@ -406,14 +408,34 @@ let rec create_encoder (env : Environ.env) (sigma : Evd.evar_map) (context_encod
   | Some type_encoder_existing -> Some type_encoder_existing
   | None ->
     match EConstr.kind sigma type_head, type_args with
-    | Rel n, type_args -> (
+      | (Const _ | Fix _), [|type_2; type_3|] when
+        (not (type_head |> EConstr.isConst sigma) ||
+        Some (Names.GlobRef.ConstRef (type_head |> EConstr.destConst sigma |> fst)) = Rocqlib.lib_ref_opt "vcpu.vec.type") &&
+        (not (type_head |> EConstr.isFix sigma) ||
+        (type_head |> EConstr.destFix sigma |> snd |> Util.pi1).(0) |> Context.binder_name = Names.Name.Name (Names.Id.of_string "vec")) -> (
+        match create_encoder env sigma context_encoders type_2 with
+        | Some type_2_encoder ->
+          Some {
+            encoder_len =
+              EConstr.mkApp (
+                get_ref env "vcpu.vec.len",
+                [|type_2; type_2_encoder.encoder_len; type_2_encoder.encoder_encode; type_3|]
+              );
+            encoder_encode =
+              EConstr.mkApp (
+                get_ref env "vcpu.vec.encode",
+                [|type_2; type_2_encoder.encoder_len; type_2_encoder.encoder_encode; type_3|]
+              );
+          }
+        | None -> None
+      )
+    | Rel n, type_args ->
       List.nth context_encoders (n - 1) |> Option.map (fun context_encoder ->
         {
           encoder_len = EConstr.mkApp (context_encoder.encoder_len, type_args);
           encoder_encode = EConstr.mkApp (context_encoder.encoder_encode, type_args);
         }
       )
-    )
     | Sort _, [||] -> None
     | Prod _, [||] -> None
     | Ind (ind, u), type_args ->
@@ -722,7 +744,13 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_head, type_args = EConstr.decompose_app sigma type_ in
   match EConstr.kind sigma type_head, type_args with
-  | Rel _, _ | Ind _, _ -> (
+  | Rel _, _
+  | Ind _, _
+  | (Const _ | Fix _), [|_; _|] when
+    (not (type_head |> EConstr.isConst sigma) ||
+    Some (Names.GlobRef.ConstRef (type_head |> EConstr.destConst sigma |> fst)) = Rocqlib.lib_ref_opt "vcpu.vec.type") &&
+    (not (type_head |> EConstr.isFix sigma) ||
+    (type_head |> EConstr.destFix sigma |> snd |> Util.pi1).(0) |> Context.binder_name = Names.Name.Name (Names.Id.of_string "vec")) -> (
     let type_encoder = create_encoder env sigma context_encoders type_ in
     match type_encoder with
     | Some _ -> [ReprRaw; ReprTransformed]
@@ -756,12 +784,17 @@ let rec enumerate_reprs (env : Environ.env) (sigma : Evd.evar_map) (context_enco
         |> List.map (fun type_2_repr -> ReprFunctional (ReprRaw, type_2_repr)))
     else if
       not (type_1 |> EConstr.decompose_prod sigma |> snd |> EConstr.isSort sigma) &&
-      type_2 |> EConstr.Vars.noccurn sigma 1
+      (* type_2 |> EConstr.Vars.noccurn sigma 1 *)
+      true
     then
       (* ReprRaw :: *)
       enumerate_reprs env sigma context_encoders type_1
         |> List.map (fun type_1_repr ->
-          enumerate_reprs env sigma context_encoders (type_2 |> econstr_substl_opt sigma [None])
+          enumerate_reprs
+            (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (type_annot, type_1)))
+            sigma
+            (None :: (context_encoders |> List.map (Option.map (encoder_lift 1))))
+            type_2
             |> List.map (fun type_2_repr -> ReprFunctional (type_1_repr, type_2_repr))
         )
         |> List.flatten
@@ -833,7 +866,7 @@ let compilation_to_array (compilation : compilation) : EConstr.t array =
   |]
 
 let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context_encoders : encoder option list) (input_encoder : encoder) (type_ : EConstr.t) (type_repr : repr) : compilation =
-  debug_vcpu Pp.(fun () -> str "get_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_);
+  (* debug_vcpu Pp.(fun () -> str "get_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_); *)
   let type_ = Tacred.hnf_constr0 env sigma type_ in
   let type_compilation_type =
   match type_repr with
@@ -847,7 +880,13 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
   | _ ->
     let type_head, type_args = EConstr.decompose_app sigma type_ in
     match EConstr.kind sigma type_head, type_args with
-    | Rel _, _ | Ind _, _ -> (
+    | Rel _, _
+    | Ind _, _
+    | (Const _ | Fix _), [|_; _|] when
+      (not (type_head |> EConstr.isConst sigma) ||
+      Some (Names.GlobRef.ConstRef (type_head |> EConstr.destConst sigma |> fst)) = Rocqlib.lib_ref_opt "vcpu.vec.type") &&
+      (not (type_head |> EConstr.isFix sigma) ||
+      (type_head |> EConstr.destFix sigma |> snd |> Util.pi1).(0) |> Context.binder_name = Names.Name.Name (Names.Id.of_string "vec")) -> (
       assert (type_repr = ReprTransformed);
       let type_encoder = create_encoder env sigma context_encoders type_ |> Option.get in
       {
@@ -1127,7 +1166,8 @@ let rec get_compilation_type (env : Environ.env) (sigma : Evd.evar_map) (context
     in
   let test_type_compilation_type = EConstr.it_mkLambda_or_LetIn EConstr.mkSProp (type_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "el_type"))) in
   (* debug_vcpu Pp.(fun () -> str "test_type_compilation_type" ++ spc () ++ Printer.pr_econstr_env env sigma type_ ++ spc () ++ str "=" ++ spc () ++ Printer.pr_econstr_env env sigma test_type_compilation_type); *)
-  Typing.type_of env sigma test_type_compilation_type |> ignore;
+  if typecheck then
+    Typing.type_of env sigma test_type_compilation_type |> ignore;
   type_compilation_type
 
 let mk_compilation_const (env : Environ.env) (orig : EConstr.t) (n : EConstr.t) (m : EConstr.t) (u : EConstr.t) (inputs : EConstr.t) : compilation =
@@ -1772,9 +1812,23 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
   (* debug_vcpu Pp.(fun () -> str "env =" ++ spc () ++ Printer.pr_econstr_env (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test); *)
   (* debug_vcpu Pp.(fun () -> str "input_len =" ++ spc () ++ Printer.pr_econstr_env env sigma input_encoder.encoder_len); *)
   (* debug_vcpu Pp.(fun () -> str "context_reprs =" ++ spc () ++ prlist_with_sep (fun () -> str "," ++ spc ()) (fun context_repr -> Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr context_repr)) context_reprs); *)
-  assert (env_test |> EConstr.Vars.closed0 sigma);
-  Typing.type_of (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test |> ignore;
-  Typing.type_of env sigma c |> ignore;
+  if typecheck then (
+    assert (env_test |> EConstr.Vars.closed0 sigma);
+    Typing.type_of (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test |> ignore;
+    context_encoders |> List.iter (Option.iter (fun encoder ->
+      Typing.type_of env sigma encoder.encoder_len |> ignore;
+      Typing.type_of env sigma encoder.encoder_encode |> ignore;
+      ()
+    ));
+    context_compilations |> List.iter (Option.iter (fun compilation ->
+      compilation
+        |> compilation_to_array
+        |> Array.iter (fun t ->
+          Typing.type_of env sigma t |> ignore
+        )
+    ));
+    Typing.type_of env sigma c |> ignore
+  );
   let c_type = Retyping.get_type_of env sigma c in
   let c_type = Tacred.hnf_constr0 env sigma c_type in
   let (c_head, c_args) = c |> EConstr.decompose_app sigma in
@@ -1789,12 +1843,12 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
               compilation_circuit =
                 EConstr.mkApp (
                   c'_compilation.compilation_circuit,
-                  [|input_encoder.encoder_len; input_encoder.encoder_encode|]
+                  [|input_encoder.encoder_len|]
                 );
               compilation_wf_circuit =
                 EConstr.mkApp (
                   c'_compilation.compilation_wf_circuit,
-                  [|input_encoder.encoder_len; input_encoder.encoder_encode|]
+                  [|input_encoder.encoder_len|]
                 );
               compilation_eval_circuit =
                 EConstr.mkApp (
@@ -2055,7 +2109,8 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
     | LetIn (c_annot, c_1, c_2, c_3) ->
       create_compilations env sigma context_encoders context_reprs context_compilations input_encoder c_1
         |> Seq.flat_map (fun (c_1_repr, c_1_compilation) ->
-          if c_1_repr = ReprTransformed &&
+          if
+            c_1_repr = ReprTransformed &&
             context_reprs |> CList.for_all_i (fun i context_repr ->
               c_3 |> EConstr.Vars.noccurn sigma (1 + i + 1) ||
               context_repr = ReprRaw ||
@@ -2083,8 +2138,14 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
                 CList.map2_i (fun context_i context_repr context_compilation ->
                   if context_repr = ReprTransformed then
                     let context_compilation = context_compilation |> Option.get in
-                    let context_type = env |> EConstr.lookup_rel (context_i + 1) |> Context.Rel.Declaration.get_type in
-                    let context_type_encoder = create_encoder env sigma context_encoders context_type |> Option.get in
+                    let context_type =
+                      env
+                        |> EConstr.lookup_rel (context_i + 1)
+                        |> Context.Rel.Declaration.get_type
+                        |> EConstr.Vars.lift (1 + context_i) in
+                    let context_type_encoder =
+                      create_encoder env sigma context_encoders context_type
+                        |> Option.get in
                     Some (
                       mk_compilation_comp env
                         context_compilation.compilation_orig
@@ -2144,8 +2205,15 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
               |> Seq.flat_map (fun (c_3_repr, c_3_compilation) ->
                 if c_3_repr = ReprTransformed then
                   let c_3_compilation = c_3_compilation |> compilation_substl_opt sigma [None] in
-                  let c_3_type = Retyping.get_type_of env sigma c_3 in
-                  let c_3_type_encoder = create_encoder env sigma context_encoders c_3_type |> Option.get in
+                  let c_3_type =
+                    Retyping.get_type_of
+                      (env |> EConstr.push_rel (Context.Rel.Declaration.LocalAssum (c_annot, c_2)))
+                      sigma
+                      c_3
+                    |> EConstr.Vars.subst1 c_1 in
+                  let c_3_type_encoder =
+                    create_encoder env sigma context_encoders c_3_type
+                      |> Option.get in
                   Seq.return (
                     ReprTransformed,
                     mk_compilation_comp env
@@ -3346,7 +3414,8 @@ let rec create_compilations (env : Environ.env) (sigma : Evd.evar_map) (context_
     (* debug_vcpu Pp.(fun () -> str "env =" ++ spc () ++ Printer.pr_econstr_env (env |> Environ.set_rel_context_val Environ.empty_rel_context_val) sigma env_test); *)
     (* debug_vcpu Pp.(fun () -> str "context_reprs =" ++ spc () ++ prlist_with_sep (fun () -> str "," ++ spc ()) (fun context_repr -> Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr context_repr)) context_reprs); *)
     (* debug_vcpu Pp.(fun () -> str "create_compilations" ++ spc () ++ Printer.pr_econstr_env env sigma c ++ spc () ++ str "∋" ++ spc () ++ str "(" ++ v 0 (Ppconstr.pr_constr_expr env sigma (repr_to_constr_expr c_repr) ++ str "," ++ spc () ++ Printer.pr_econstr_env env sigma c_compilation_test) ++ str ")"); *)
-    Typing.type_of env sigma c_compilation_test |> ignore;
+    if typecheck then
+      Typing.type_of env sigma c_compilation_test |> ignore;
     (
       if c_reprs_c_compilations |> List.filter_map Fun.id |> List.mem_assoc c_repr then
         None
@@ -3389,136 +3458,152 @@ let entry_derive_compilation (c_constr_expr : Constrexpr.constr_expr) (wanted_re
               (c_compilation_type |> compilation_type_to_context (EConstr.nameR (Names.Id.of_string "c"))),
             c_compilation |> compilation_to_array
           ) in
-        Typing.type_of (env |> EConstr.push_rel_context input_ctx) sigma c_compilation_test |> ignore;
         if output_id = None then (
           Feedback.msg_info Pp.(str "c_repr =" ++ spc () ++ Ppconstr.pr_constr_expr (env |> EConstr.push_rel_context input_ctx) sigma (repr_to_constr_expr c_repr));
           Feedback.msg_info Pp.(str "c_compilation_test =" ++ spc () ++ Printer.pr_econstr_env (env |> EConstr.push_rel_context input_ctx) sigma c_compilation_test);
         );
+        Typing.type_of (env |> EConstr.push_rel_context input_ctx) sigma c_compilation_test |> ignore;
         c_compilation_type, c_repr, c_compilation
       )
       |> List.of_seq in
-  match output_id, l with
-  | Some output_id, (c_compilation_type, c_repr, c_compilation) :: _ ->
-    let c_orig_constant =
-      Declare.declare_definition
-        ~info:(Declare.Info.make ())
-        ~cinfo:(
-          Declare.CInfo.make
-          ~name:((output_id |> Names.Id.to_string) ^ "_orig" |> Names.Id.of_string)
-          ~typ:None
-          ()
-        )
-        ~opaque:false
-        ~body:(
-          c_compilation.compilation_orig
-            |> econstr_substl_opt sigma [
-              None;
-              None;
-            ]
-        )
-        sigma
-      |> dest_const_ref in
-    let c_circuit_constant =
-      Declare.declare_definition
-        ~info:(Declare.Info.make ())
-        ~cinfo:(
-          Declare.CInfo.make
-          ~name:((output_id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
-          ~typ:(Some (
-            EConstr.it_mkProd_or_LetIn
-              (c_compilation_type.compilation_circuit
+  match wanted_repr, l with
+  | Some _, (c_compilation_type, c_repr, c_compilation) :: _ -> (
+    match output_id with
+    | Some output_id ->
+      let c_orig_constant =
+        Declare.declare_definition
+          ~info:(Declare.Info.make ())
+          ~cinfo:(
+            Declare.CInfo.make
+            ~name:((output_id |> Names.Id.to_string) ^ "_orig" |> Names.Id.of_string)
+            ~typ:None
+            ()
+          )
+          ~opaque:false
+          ~body:(
+            c_compilation.compilation_orig
+              |> econstr_substl_opt sigma [
+                None;
+                None;
+              ]
+          )
+          sigma
+        |> dest_const_ref in
+      let c_circuit_constant =
+        Declare.declare_definition
+          ~info:(Declare.Info.make ())
+          ~cinfo:(
+            Declare.CInfo.make
+            ~name:((output_id |> Names.Id.to_string) ^ "_circuit" |> Names.Id.of_string)
+            ~typ:(Some (
+              EConstr.mkProd (EConstr.nameR (Names.Id.of_string "input_len"),
+                mk_nat_type env,
+                c_compilation_type.compilation_circuit
+                  |> econstr_substl_opt sigma [
+                    None;
+                    None;
+                  ]
+              )
+            ))
+            ()
+          )
+          ~opaque:false
+          ~body:(
+            EConstr.mkLambda (EConstr.nameR (Names.Id.of_string "input_len"),
+              mk_nat_type env,
+              c_compilation.compilation_circuit
                 |> econstr_substl_opt sigma [
                   None;
-                ])
-              input_ctx
-          ))
-          ()
-        )
-        ~opaque:false
-        ~body:(
-          EConstr.it_mkLambda_or_LetIn
-            c_compilation.compilation_circuit
-            input_ctx
-        )
-        sigma
-      |> dest_const_ref in
-    let c_wf_circuit_constant =
-      Declare.declare_definition
-        ~info:(Declare.Info.make ())
-        ~cinfo:(
-          Declare.CInfo.make
-          ~name:((output_id |> Names.Id.to_string) ^ "_wf_circuit" |> Names.Id.of_string)
-          ~typ:(Some (
-            EConstr.it_mkProd_or_LetIn
-              (c_compilation_type.compilation_wf_circuit
+                ]
+            )
+          )
+          sigma
+        |> dest_const_ref in
+      let c_wf_circuit_constant =
+        Declare.declare_definition
+          ~info:(Declare.Info.make ())
+          ~cinfo:(
+            Declare.CInfo.make
+            ~name:((output_id |> Names.Id.to_string) ^ "_wf_circuit" |> Names.Id.of_string)
+            ~typ:(Some (
+              EConstr.mkProd (EConstr.nameR (Names.Id.of_string "input_len"),
+                mk_nat_type env,
+                c_compilation_type.compilation_wf_circuit
+                  |> econstr_substl_opt sigma [
+                    Some (
+                      EConstr.mkApp (
+                        EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
+                        [|EConstr.mkRel 1|]
+                      )
+                    );
+                    None;
+                    None;
+                  ]
+              )
+            ))
+            ()
+          )
+          ~opaque:false
+          ~body:(
+            EConstr.mkLambda (EConstr.nameR (Names.Id.of_string "input_len"),
+              mk_nat_type env,
+              c_compilation.compilation_wf_circuit
                 |> econstr_substl_opt sigma [
-                  Some (
-                    EConstr.mkApp (
-                      EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
-                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
-                    )
-                  );
                   None;
-                ])
+                ]
+            )
+          )
+          sigma
+        |> dest_const_ref in
+      let c_eval_circuit_constant =
+        Declare.declare_definition
+          ~info:(Declare.Info.make ())
+          ~cinfo:(
+            Declare.CInfo.make
+            ~name:((output_id |> Names.Id.to_string) ^ "_eval_circuit" |> Names.Id.of_string)
+            ~typ:(Some (
+              EConstr.it_mkProd_or_LetIn
+                (c_compilation_type.compilation_eval_circuit
+                  |> econstr_substl_opt sigma [
+                    Some (
+                      EConstr.mkApp (
+                        EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant,
+                        [|EConstr.mkRel 2|]
+                      )
+                    );
+                    Some (
+                      EConstr.mkApp (
+                        EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
+                        [|EConstr.mkRel 2|]
+                      )
+                    );
+                    Some (EConstr.UnsafeMonomorphic.mkConst c_orig_constant);
+                  ])
+                input_ctx
+            ))
+            ()
+          )
+          ~opaque:false
+          ~body:(
+            EConstr.it_mkLambda_or_LetIn
+              c_compilation.compilation_eval_circuit
               input_ctx
-          ))
-          ()
-        )
-        ~opaque:false
-        ~body:(
-          EConstr.it_mkLambda_or_LetIn
-            c_compilation.compilation_wf_circuit
-            input_ctx
-        )
-        sigma
-      |> dest_const_ref in
-    let c_eval_circuit_constant =
-      Declare.declare_definition
-        ~info:(Declare.Info.make ())
-        ~cinfo:(
-          Declare.CInfo.make
-          ~name:((output_id |> Names.Id.to_string) ^ "_eval_circuit" |> Names.Id.of_string)
-          ~typ:(Some (
-            EConstr.it_mkProd_or_LetIn
-              (c_compilation_type.compilation_eval_circuit
-                |> econstr_substl_opt sigma [
-                  Some (
-                    EConstr.mkApp (
-                      EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant,
-                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
-                    )
-                  );
-                  Some (
-                    EConstr.mkApp (
-                      EConstr.UnsafeMonomorphic.mkConst c_circuit_constant,
-                      [|EConstr.mkRel 2; EConstr.mkRel 1|]
-                    )
-                  );
-                  Some (EConstr.UnsafeMonomorphic.mkConst c_orig_constant);
-                ])
-              input_ctx
-          ))
-          ()
-        )
-        ~opaque:false
-        ~body:(
-          EConstr.it_mkLambda_or_LetIn
-            c_compilation.compilation_eval_circuit
-            input_ctx
-        )
-        sigma
-      |> dest_const_ref in
-    add_saved_compilation (
-      c,
-      c_repr,
-      {
-        compilation_orig = EConstr.UnsafeMonomorphic.mkConst c_orig_constant;
-        compilation_circuit = EConstr.UnsafeMonomorphic.mkConst c_circuit_constant;
-        compilation_wf_circuit = EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant;
-        compilation_eval_circuit = EConstr.UnsafeMonomorphic.mkConst c_eval_circuit_constant;
-      }
-    );
-    ()
+          )
+          sigma
+        |> dest_const_ref in
+      add_saved_compilation (
+        c,
+        c_repr,
+        {
+          compilation_orig = EConstr.UnsafeMonomorphic.mkConst c_orig_constant;
+          compilation_circuit = EConstr.UnsafeMonomorphic.mkConst c_circuit_constant;
+          compilation_wf_circuit = EConstr.UnsafeMonomorphic.mkConst c_wf_circuit_constant;
+          compilation_eval_circuit = EConstr.UnsafeMonomorphic.mkConst c_eval_circuit_constant;
+        }
+      );
+      ()
+    | None -> ()
+  )
   | Some _, [] ->
     CErrors.user_err Pp.(str "No compilation found")
   | None, _ -> ()
